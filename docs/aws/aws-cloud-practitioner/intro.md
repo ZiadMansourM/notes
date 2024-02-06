@@ -322,12 +322,18 @@ if len(sys.argv) > 2:
     # Print "Summary:" in Red as header for summary section
     console.print("[bold red]Summary:[/bold red]")
 
-    # Calculate and print the percentage
-    percentage_network2_in_network1 = (network_two.num_addresses / network.num_addresses) * 100
-    console.print(f"The network [bold cyan]{network_two}[/bold cyan] represents [bold magenta]{percentage_network2_in_network1:.4f}%[/bold magenta] of the network [bold cyan]{network}[/bold cyan].", style="bold green")
+    # Check if network_two is a subnet of network
+    if network_two.subnet_of(network):
+        console.print(f"The network [bold cyan]{network_two}[/bold cyan] is a subnet of [bold cyan]{network}[/bold cyan].", style="bold green")
+        # Calculate and print the percentage
+        percentage_network2_in_network1 = (network_two.num_addresses / network.num_addresses) * 100
+        console.print(f"- [bold cyan]{network_two}[/bold cyan] represents [bold magenta]{percentage_network2_in_network1:.4f}%[/bold magenta] of the network [bold cyan]{network}[/bold cyan].", style="bold green")
 
-    # How many of network_two can fit in network
-    console.print(f"You can fit [bold]{int(network.num_addresses / network_two.num_addresses)}[/bold] networks like [bold cyan]{network_two}[/bold cyan] in [bold cyan]{network}[/bold cyan].", style="bold green")
+        # How many of network_two can fit in network
+        console.print(f"- You can fit [bold]{int(network.num_addresses / network_two.num_addresses)}[/bold] networks like [bold cyan]{network_two}[/bold cyan] in [bold cyan]{network}[/bold cyan].", style="bold green")
+    else:
+        console.print(f"The network [bold cyan]{network_two}[/bold cyan] is not a subnet of [bold cyan]{network}[/bold cyan].", style="bold green")
+
 ```
 
 </details>
