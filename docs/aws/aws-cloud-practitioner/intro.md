@@ -373,9 +373,26 @@ You can fit 256 networks like 10.0.0.0/16 in 10.0.0.0/8.
 
 </TabItem>
 
-<TabItem value="Screen Shot">
-![output-screenshot](./assets/image.png)
+<TabItem value="Screenshot">
+![output-screenshot](./assets/bash-screenshot.png)
 </TabItem>
 </Tabs>
 
 </details>
+
+
+## Storage Classes Map
+
+![s3-classes-map](./assets/s3-classes-map.png)
+
+
+## Databases
+
+![unstructured-dbs-v1](./assets/unstructured-dbs.png)
+
+![unstructured-dbs-v2](./assets/unstructured-dbs-v2.png)
+
+
+## Billing
+
+![billing](./assets/billing.png)
