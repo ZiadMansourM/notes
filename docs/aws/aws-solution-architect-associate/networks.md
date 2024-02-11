@@ -3,6 +3,15 @@ sidebar_position: 2
 title: Network Services
 ---
 
+## Perquisites
+:::info Private IP Addresses
+Prefix | First Ip Address | Last Ip Address | Number of Addresses
+:--: | :--: | :--: | :--:
+10.0.0.0/8 | 10.0.0.0 | 10.255.255.255 | 16,777,216
+172.16.0.0/12 | 172.16.0.0 | 172.31.255.255 | 1,048,576
+192.168.0.0/16 | 192.168.0.0 | 192.168.255.255 | 65,536
+:::
+
 ## VPC
 Stands for `Virtual Private Cloud`. Allows us to isolate recourses from other resources. VPC gives you full control over networking in the cloud:
 - Subnetting.
@@ -20,14 +29,6 @@ VPCs by default act as `network boundaries`.
 :::note VPC CIDR block
 - Every VPC has a `CIDR block` that defines the range of IP addresses that resources in the VPC can use.
 - A CIDR can be anywhere from `/16` to `/28`.
-:::
-
-:::info Private IP Addresses
-Prefix | First Ip Address | Last Ip Address | Number of Addresses
-:--: | :--: | :--: | :--:
-10.0.0.0/8 | 10.0.0.0 | 10.255.255.255 | 16,777,216
-172.16.0.0/12 | 172.16.0.0 | 172.31.255.255 | 1,048,576
-192.168.0.0/16 | 192.168.0.0 | 192.168.255.255 | 65,536
 :::
 
 :::tip VPC Other Features
