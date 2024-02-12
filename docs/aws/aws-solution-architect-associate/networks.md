@@ -307,9 +307,140 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
     2. Network Load Balancer.
     3. Classic Load Balancer.
 
+
+<Tabs>
+
+<TabItem value="ELB Overview">
+
 ![elb](./assets/elb.png)
 
-## Classic Load Balancer
+</TabItem>
+
+<TabItem value="ELB Nodes">
+
+![elb-node](./assets/elb-node.png)
+
+</TabItem>
+
+</Tabs>
+
+
+### Classic Load Balancer
 ![classic-lb](./assets/classic-lb.png)
 
+
+### Application Load Balancer
+
+
+<Tabs>
+
+<TabItem value="Application LB">
+
+![application-lb](./assets/application-lb.png)
+
+</TabItem>
+
+<TabItem value="Certificate Termination">
+
+![application-lb-cert](./assets/application-lb-cert.png)
+
+</TabItem>
+
+</Tabs>
+
+
+### Network Load Balancer
+
+
+<Tabs>
+
+<TabItem value="Network LB">
+
+![network-lb](./assets/network-lb.png)
+
+</TabItem>
+
+<TabItem value="Certificate Termination">
+
+![network-lb-cert](./assets/network-lb-cert.png)
+
+</TabItem>
+
+</Tabs>
+
+
+### Cross-Zone Load Balancing
+
+![cross-zone-lb](./assets/cross-zone-lb.png)
+
+
+### Deployment Modes
+1. Public Load Balancers:
+    - Deployed on public subnets.
+    - Access by users across public internet.
+2. Private/Internal Load Balancers:
+    - Deployed on private subnets.
+    - Accessible only from organization's aws network.
+
+### ELB Architecture Example
+
+![elb-arch-example](./assets/elb-arch-example.png)
+
+
+### Listeners and Target Groups
+
+![listener-target-group](./assets/listener-target-group.png)
+
+
+## VPN
+- Stands for `Virtual Private Network`.
+- VPN Connects VPCs to on-premises data centers.
+- A virtual private gateway is the Amazon-side endpoint for your VPN, attachable to `one` VPC. And it will `terminate the connection`.
+- Customer Gateway is the on-premises side endpoint for your VPN. And it will `terminate the connection`.
+
+
+<Tabs>
+
+<TabItem value="VPN Overview">
+
+![vpn-arch](./assets/vpn-arch.png)
+
+</TabItem>
+
+<TabItem value="VPN Detailed">
+
+![vpn-arch-detailed](./assets/vpn-arch-detailed.png)
+
+</TabItem>
+
+</Tabs>
+
+
+### VPN Routing
+
+:::note
+- On-premises network can be set `statically` in a route table. Or `dynamically` exchanged via BGP.
+- `Border Gateway Protocol - BGP` routing protocol.
+:::
+
+![vpn-routing](./assets/vpn-routing.png)
+
+
+### VPN Pricing
+- Charged for each available VPN connection per hour.
+- Charged for data transfer out from the AWS side to the internet.
+
+:::note You will be charged for
+- Per hour for each VPN connection.
+- Egress data out of the AWS side to the internet.
+:::
+
+### VPN Gateway Limits
+- Maximum bandwidth per VPN tunnel: 1.25 Gbps.
+- Maximum packets per second: 140,000 packet.
+- Maximum transmission unit: 1,466 bytes.
+
+:::tip ECMP
+You can use `ECMP` to increase the bandwidth of your VPN connection. `Equal Cost Multi-Path` routing. Across multiple VPN tunnels.
+:::
 
