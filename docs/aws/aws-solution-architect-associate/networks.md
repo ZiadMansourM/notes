@@ -298,3 +298,18 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 - You can assign multiple security groups to a single resource. Rules get `Merged`.
 
 ![sg-vs-nacls](./assets/sg-nacls.png)
+
+
+## Elastic Load Balancer
+- AWS load balancers service.
+- AWS offers three types of load balancers:
+    1. Application Load Balancer.
+    2. Network Load Balancer.
+    3. Classic Load Balancer.
+
+![elb](./assets/elb.png)
+
+## Classic Load Balancer
+![classic-lb](./assets/classic-lb.png)
+
+
