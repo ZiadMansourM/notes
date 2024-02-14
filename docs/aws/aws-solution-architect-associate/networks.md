@@ -444,3 +444,218 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 You can use `ECMP` to increase the bandwidth of your VPN connection. `Equal Cost Multi-Path` routing. Across multiple VPN tunnels.
 :::
 
+## Direct Connect
+- A dedicated network connection from your on-premises data center to AWS.
+- You purchase a `port` from a `Direct Connect` location AWS router.
+
+![dx](./assets/dx.png)
+
+### Direct Connect Pricing
+- Charged for the port per hour.
+- For Egress data out.
+
+## VPC Peering
+- Connects two VPCs together.
+- We can do peering across different accounts.
+- transitive peering is not allowed.
+
+:::note VPC Behavior
+Resources in a different VPC can't communicate with each other by default.
+
+![vpc-default](./assets/vpc-default.png)
+:::
+
+![vpc-peering](./assets/vpc-peering.png)
+
+
+### VPC Peering Pricing
+1. No cost:
+    - Actual VPC peering connection.
+    - Data transfer within the same AZ.
+2. Charged:
+    - Egress data across AZs.
+
+
+### VPC Peering Routing
+
+![vpc-peering-routing](./assets/vpc-peering-routing.png)
+
+
+### Transitive VPC Peering
+![trans-vpc-peering](./assets/trans-vpc-peering.png)
+
+
+## Transit Gateway
+- VPCs by default can't talk to one another.
+- Purpose: avoid having to maintain a full mesh of VPC peering connections.
+
+:::warning VPC Peering at a Scale
+VPC Peering and VPN connections don't scale well. `Transit Gateway` is the solution.
+
+![vpc-peering-scale](./assets/vpc-peering-scale.png)
+:::
+
+
+![transit-gw](./assets/transit-gw.png)
+
+
+### Transit Gateway Peerings
+
+<Tabs>
+
+<TabItem value="Transit GW Peerings Regions">
+
+![transit-gw-peering-regions](./assets/transit-gw-peering-regions.png)
+
+</TabItem>
+
+<TabItem value="Transit GW Peerings Accounts">
+
+![transit-gw-peering-accounts](./assets/transit-gw-peering-accounts.png)
+
+</TabItem>
+
+</Tabs>
+
+
+## Private Link
+
+<Tabs>
+
+<TabItem value="Problematic">
+
+![private-link](./assets/private-link.png)
+
+</TabItem>
+
+<TabItem value="Implementation Diagram">
+
+![private-link-overview](./assets/private-link-overview.png)
+
+</TabItem>
+
+</Tabs>
+
+
+## CloudFront
+- A `Content Delivery Network - CDN`.
+- Purpose: to deliver content to users with low latency and high data transfer speeds.
+- `Edge Locations` are the locations where content will be cached.
+- Use cases:
+    - Static websites.
+    - Video on demand.
+    - Streaming.
+
+
+<Tabs>
+
+<TabItem value="Problem">
+
+![cloudfront-problem](./assets/cloudfront-problem.png) 
+
+</TabItem>
+
+<TabItem value="CloudFront Solution">
+
+![cloudfront-solution](./assets/cloudfront-solution.png)
+
+</TabItem>
+
+</Tabs>
+
+### Types of CloudFront Distributions
+
+![cloudfront](./assets/cloudfront.png)
+
+
+### CloudFront Edge Locations
+![cf-edge](./assets/cf-edge.png)
+
+
+
+### CloudFront Architecture
+- Origin: the location of the original version of the content.
+
+:::note Custom Origin Types
+You can utilize Load Balancers or an HTTP server running on EC2 servers as a custom origin.
+:::
+
+![cf-origins](./assets/cf-origins.png)
+
+![cf-cach](./assets/cf-cach.png)
+
+
+### CloudFront TTL
+1. Cached content at an edge location remains for a set time known as time to live `TTL`.
+2. TTL value decides content validity before an edge location requests the origin.
+3. Default TTL is `24 hours`.
+4. Can have objects expire at a specific time.
+
+
+### CloudFront Cache Invalidation
+
+![cf-cach-invalidation](./assets/cf-cach-invalidation.png)
+
+### CloudFront SSL/TLS and ACM
+
+![cf-ssl](./assets/cf-ssl.png)
+
+
+### CloudFront Observability
+- CloudFront exposes metrics to CloudWatch.
+- Can enable extra metrics for an additional cost.
+
+
+### Lambda@Edge
+1. CloudFront functions, are ideal for:
+    - Lightweight functions.
+    - Cache key manipulations.
+    - Header manipulations.
+    - URL rewrites or redirects.
+    - Request authorization.
+2. Lambda@Edge, are ideal for:
+    - Long running functions, several milliseconds or more.
+    - Configurable CPU and memory functions.
+    - Functions that require external libraries.
+    - Network dependent functions.
+    - File system dependent or HTTP Request Access functions.
+    
+
+![cf-func-lam-edg](./assets/cf-func-lam-edg.png)
+
+
+![cffunc-edge](./assets/cffunc-edge.png)
+
+
+## Global Accelerator
+
+<Tabs>
+
+<TabItem value="Over Internet">
+
+![wild-net](./assets/wild-net.png)
+
+</TabItem>
+
+<TabItem value="AWS Backbone">
+
+![aws-backbone](./assets/aws-backbone.png)
+
+</TabItem>
+
+</Tabs>
+
+## Route 53
+
+### Hosted Zones
+
+![hosted-zones](./assets/hosted-zones.png)
+
+
+### Application Recovery Controller
+
+![app-rec-con](./assets/app-rec-con.png)
+
+![alt text](./assets/arca.png)
+
+![alt text](./assets/arca-detailed.png)
