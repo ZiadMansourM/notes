@@ -66,7 +66,7 @@ Default VPCs allow internet connectivity for all your resources by default.
 - Auto-assign public IP addresses is `enabled` by default inside each default subnet.
 :::
 
-![vpc-default-conf](./assets/vpc-default-conf.png)
+![vpc-default-conf](./assets/networking/vpc-default-conf.png)
 ::::
 
 :::info VPC DEFAULT Internet Access Configuration
@@ -87,7 +87,7 @@ Are groups of IP addresses within your VPC.
 - Subnets block size must be between `/16` and `/28`.
 - subnets can be made `public` or `private`.
 
-![subnets-demo](./assets/subnets-demo.png)
+![subnets-demo](./assets/networking/subnets-demo.png)
 :::
 
 :::tip Subnets Features
@@ -152,14 +152,14 @@ You might have different rules:
 
 <TabItem value="Public Subnet">
 
-![public-subnet](./assets/public-vpc.png)    
+![public-subnet](./assets/networking/public-vpc.png)    
 
 </TabItem>
 
 
 <TabItem value="Private Subnet">
 
-![private-subnet](./assets/private-vpc.png)
+![private-subnet](./assets/networking/private-vpc.png)
 
 </TabItem>
 
@@ -192,13 +192,13 @@ Your public IP is associated to your private IP. Linked together.
 
 <TabItem value="NAT Gateway">
 
-![nat-gw](./assets/nat-gw.png)
+![nat-gw](./assets/networking/nat-gw.png)
 
 </TabItem>
 
 <TabItem value="NAT Gateway HA">
 
-![nat-gw-ha](./assets/natgw-ha.png)
+![nat-gw-ha](./assets/networking/natgw-ha.png)
 
 </TabItem>
 
@@ -212,7 +212,7 @@ If you need to egress traffic via a NATGW that is not in the same AZ you will in
 - Query `169.254.169.253` for DNS resolution.
 - Second IP address of the `VPC`.
 
-![dns-vpcs](./assets/dns-vpcs.png)
+![dns-vpcs](./assets/networking/dns-vpcs.png)
 
 :::tip Enable domain names for Public IPs
 By default, only private IP addresses will get a domain name. You can enable domain names for public IP addresses by: 
@@ -242,13 +242,13 @@ Security Groups and NACLs act as `firewalls`.
 
 <TabItem value="Stateless Firewall">
 
-![stateless-firewalls](./assets/stateless-firewalls.png)
+![stateless-firewalls](./assets/networking/stateless-firewalls.png)
 
 </TabItem>
 
 <TabItem value="Stateful Firewall">
 
-![stateful-firewalls](./assets/stateful-firewalls.png)
+![stateful-firewalls](./assets/networking/stateful-firewalls.png)
 
 </TabItem>
 
@@ -276,7 +276,7 @@ You can have multiple subnets associated with the same NACL. But a subnet can on
 - Reserved IP addresses used by default VPC router.
 :::
 
-![NACLs](./assets/nacls.png)
+![NACLs](./assets/networking/nacls.png)
 
 ### Security Groups
 - Purpose: filter traffic at individual resources level `EC2, LB, RDS...etc`.
@@ -288,7 +288,7 @@ You can have multiple subnets associated with the same NACL. But a subnet can on
 Instead of hardcoding Private IP addresses in the source field, you can use the `security group ID` of the source security group. E.g. database security group allows traffic from web security group.
 :::
 
-![security-groups](./assets/security-groups.png)
+![security-groups](./assets/networking/security-groups.png)
 
 
 ### NACLs vs Security Groups
@@ -297,7 +297,7 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 - NACKs have `numbered` rules. Ordered and evaluated in order. The smaller the earlier.
 - You can assign multiple security groups to a single resource. Rules get `Merged`.
 
-![sg-vs-nacls](./assets/sg-nacls.png)
+![sg-vs-nacls](./assets/networking/sg-nacls.png)
 
 
 ## Elastic Load Balancer
@@ -312,13 +312,13 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 
 <TabItem value="ELB Overview">
 
-![elb](./assets/elb.png)
+![elb](./assets/networking/elb.png)
 
 </TabItem>
 
 <TabItem value="ELB Nodes">
 
-![elb-node](./assets/elb-node.png)
+![elb-node](./assets/networking/elb-node.png)
 
 </TabItem>
 
@@ -326,7 +326,7 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 
 
 ### Classic Load Balancer
-![classic-lb](./assets/classic-lb.png)
+![classic-lb](./assets/networking/classic-lb.png)
 
 
 ### Application Load Balancer
@@ -336,13 +336,13 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 
 <TabItem value="Application LB">
 
-![application-lb](./assets/application-lb.png)
+![application-lb](./assets/networking/application-lb.png)
 
 </TabItem>
 
 <TabItem value="Certificate Termination">
 
-![application-lb-cert](./assets/application-lb-cert.png)
+![application-lb-cert](./assets/networking/application-lb-cert.png)
 
 </TabItem>
 
@@ -356,13 +356,13 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 
 <TabItem value="Network LB">
 
-![network-lb](./assets/network-lb.png)
+![network-lb](./assets/networking/network-lb.png)
 
 </TabItem>
 
 <TabItem value="Certificate Termination">
 
-![network-lb-cert](./assets/network-lb-cert.png)
+![network-lb-cert](./assets/networking/network-lb-cert.png)
 
 </TabItem>
 
@@ -371,7 +371,7 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 
 ### Cross-Zone Load Balancing
 
-![cross-zone-lb](./assets/cross-zone-lb.png)
+![cross-zone-lb](./assets/networking/cross-zone-lb.png)
 
 
 ### Deployment Modes
@@ -384,12 +384,12 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 
 ### ELB Architecture Example
 
-![elb-arch-example](./assets/elb-arch-example.png)
+![elb-arch-example](./assets/networking/elb-arch-example.png)
 
 
 ### Listeners and Target Groups
 
-![listener-target-group](./assets/listener-target-group.png)
+![listener-target-group](./assets/networking/listener-target-group.png)
 
 
 ## VPN
@@ -403,13 +403,13 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 
 <TabItem value="VPN Overview">
 
-![vpn-arch](./assets/vpn-arch.png)
+![vpn-arch](./assets/networking/vpn-arch.png)
 
 </TabItem>
 
 <TabItem value="VPN Detailed">
 
-![vpn-arch-detailed](./assets/vpn-arch-detailed.png)
+![vpn-arch-detailed](./assets/networking/vpn-arch-detailed.png)
 
 </TabItem>
 
@@ -423,7 +423,7 @@ Instead of hardcoding Private IP addresses in the source field, you can use the 
 - `Border Gateway Protocol - BGP` routing protocol.
 :::
 
-![vpn-routing](./assets/vpn-routing.png)
+![vpn-routing](./assets/networking/vpn-routing.png)
 
 
 ### VPN Pricing
@@ -448,7 +448,7 @@ You can use `ECMP` to increase the bandwidth of your VPN connection. `Equal Cost
 - A dedicated network connection from your on-premises data center to AWS.
 - You purchase a `port` from a `Direct Connect` location AWS router.
 
-![dx](./assets/dx.png)
+![dx](./assets/networking/dx.png)
 
 ### Direct Connect Pricing
 - Charged for the port per hour.
@@ -462,10 +462,10 @@ You can use `ECMP` to increase the bandwidth of your VPN connection. `Equal Cost
 :::note VPC Behavior
 Resources in a different VPC can't communicate with each other by default.
 
-![vpc-default](./assets/vpc-default.png)
+![vpc-default](./assets/networking/vpc-default.png)
 :::
 
-![vpc-peering](./assets/vpc-peering.png)
+![vpc-peering](./assets/networking/vpc-peering.png)
 
 
 ### VPC Peering Pricing
@@ -478,11 +478,11 @@ Resources in a different VPC can't communicate with each other by default.
 
 ### VPC Peering Routing
 
-![vpc-peering-routing](./assets/vpc-peering-routing.png)
+![vpc-peering-routing](./assets/networking/vpc-peering-routing.png)
 
 
 ### Transitive VPC Peering
-![trans-vpc-peering](./assets/trans-vpc-peering.png)
+![trans-vpc-peering](./assets/networking/trans-vpc-peering.png)
 
 
 ## Transit Gateway
@@ -492,11 +492,11 @@ Resources in a different VPC can't communicate with each other by default.
 :::warning VPC Peering at a Scale
 VPC Peering and VPN connections don't scale well. `Transit Gateway` is the solution.
 
-![vpc-peering-scale](./assets/vpc-peering-scale.png)
+![vpc-peering-scale](./assets/networking/vpc-peering-scale.png)
 :::
 
 
-![transit-gw](./assets/transit-gw.png)
+![transit-gw](./assets/networking/transit-gw.png)
 
 
 ### Transit Gateway Peerings
@@ -505,13 +505,13 @@ VPC Peering and VPN connections don't scale well. `Transit Gateway` is the solut
 
 <TabItem value="Transit GW Peerings Regions">
 
-![transit-gw-peering-regions](./assets/transit-gw-peering-regions.png)
+![transit-gw-peering-regions](./assets/networking/transit-gw-peering-regions.png)
 
 </TabItem>
 
 <TabItem value="Transit GW Peerings Accounts">
 
-![transit-gw-peering-accounts](./assets/transit-gw-peering-accounts.png)
+![transit-gw-peering-accounts](./assets/networking/transit-gw-peering-accounts.png)
 
 </TabItem>
 
@@ -524,13 +524,13 @@ VPC Peering and VPN connections don't scale well. `Transit Gateway` is the solut
 
 <TabItem value="Problematic">
 
-![private-link](./assets/private-link.png)
+![private-link](./assets/networking/private-link.png)
 
 </TabItem>
 
 <TabItem value="Implementation Diagram">
 
-![private-link-overview](./assets/private-link-overview.png)
+![private-link-overview](./assets/networking/private-link-overview.png)
 
 </TabItem>
 
@@ -551,13 +551,13 @@ VPC Peering and VPN connections don't scale well. `Transit Gateway` is the solut
 
 <TabItem value="Problem">
 
-![cloudfront-problem](./assets/cloudfront-problem.png) 
+![cloudfront-problem](./assets/networking/cloudfront-problem.png) 
 
 </TabItem>
 
 <TabItem value="CloudFront Solution">
 
-![cloudfront-solution](./assets/cloudfront-solution.png)
+![cloudfront-solution](./assets/networking/cloudfront-solution.png)
 
 </TabItem>
 
@@ -565,11 +565,11 @@ VPC Peering and VPN connections don't scale well. `Transit Gateway` is the solut
 
 ### Types of CloudFront Distributions
 
-![cloudfront](./assets/cloudfront.png)
+![cloudfront](./assets/networking/cloudfront.png)
 
 
 ### CloudFront Edge Locations
-![cf-edge](./assets/cf-edge.png)
+![cf-edge](./assets/networking/cf-edge.png)
 
 
 
@@ -580,9 +580,9 @@ VPC Peering and VPN connections don't scale well. `Transit Gateway` is the solut
 You can utilize Load Balancers or an HTTP server running on EC2 servers as a custom origin.
 :::
 
-![cf-origins](./assets/cf-origins.png)
+![cf-origins](./assets/networking/cf-origins.png)
 
-![cf-cach](./assets/cf-cach.png)
+![cf-cach](./assets/networking/cf-cach.png)
 
 
 ### CloudFront TTL
@@ -594,11 +594,11 @@ You can utilize Load Balancers or an HTTP server running on EC2 servers as a cus
 
 ### CloudFront Cache Invalidation
 
-![cf-cach-invalidation](./assets/cf-cach-invalidation.png)
+![cf-cach-invalidation](./assets/networking/cf-cach-invalidation.png)
 
 ### CloudFront SSL/TLS and ACM
 
-![cf-ssl](./assets/cf-ssl.png)
+![cf-ssl](./assets/networking/cf-ssl.png)
 
 
 ### CloudFront Observability
@@ -621,10 +621,10 @@ You can utilize Load Balancers or an HTTP server running on EC2 servers as a cus
     - File system dependent or HTTP Request Access functions.
     
 
-![cf-func-lam-edg](./assets/cf-func-lam-edg.png)
+![cf-func-lam-edg](./assets/networking/cf-func-lam-edg.png)
 
 
-![cffunc-edge](./assets/cffunc-edge.png)
+![cffunc-edge](./assets/networking/cffunc-edge.png)
 
 
 ## Global Accelerator
@@ -633,13 +633,13 @@ You can utilize Load Balancers or an HTTP server running on EC2 servers as a cus
 
 <TabItem value="Over Internet">
 
-![wild-net](./assets/wild-net.png)
+![wild-net](./assets/networking/wild-net.png)
 
 </TabItem>
 
 <TabItem value="AWS Backbone">
 
-![aws-backbone](./assets/aws-backbone.png)
+![aws-backbone](./assets/networking/aws-backbone.png)
 
 </TabItem>
 
@@ -647,15 +647,45 @@ You can utilize Load Balancers or an HTTP server running on EC2 servers as a cus
 
 ## Route 53
 
+:::tip Route 53 Routing Policies
+When you create a record, you choose a routing policy, which determines how Amazon Route 53 responds to queries:
+
+1. **Simple routing policy** – Use for a single resource that performs a given function for your domain, for example, a web server that serves content for the example.com website. You can use simple routing to create records in a private hosted zone.
+
+2. **Failover routing policy** – Use when you want to configure active-passive failover. You can use failover routing to create records in a private hosted zone.
+
+3. **Geolocation routing policy** – Use when you want to route traffic based on the location of your users. You can use geolocation routing to create records in a private hosted zone.
+
+4. **Geoproximity routing policy** – Use when you want to route traffic based on the location of your resources and, optionally, shift traffic from resources in one location to resources in another location. You can use geoproximity routing to create records in a private hosted zone.
+
+5. **Latency routing policy** – Use when you have resources in multiple AWS Regions and you want to route traffic to the Region that provides the best latency. You can use latency routing to create records in a private hosted zone.
+
+6. **IP-based routing policy** – Use when you want to route traffic based on the location of your users, and have the IP addresses that the traffic originates from.
+
+7. **Multivalue answer routing policy** – Use when you want Route 53 to respond to DNS queries with up to eight healthy records selected at random. You can use multivalue answer routing to create records in a private hosted zone.
+
+8. **Weighted routing policy** – Use to route traffic to multiple resources in proportions that you specify. You can use weighted routing to create records in a private hosted zone.
+
+:::
+
 ### Hosted Zones
 
-![hosted-zones](./assets/hosted-zones.png)
+![hosted-zones](./assets/networking/hosted-zones.png)
 
 
 ### Application Recovery Controller
 
-![app-rec-con](./assets/app-rec-con.png)
+![app-rec-con](./assets/networking/app-rec-con.png)
 
-![alt text](./assets/arca.png)
+![alt text](./assets/networking/arca.png)
 
-![alt text](./assets/arca-detailed.png)
+![alt text](./assets/networking/arca-detailed.png)
+
+
+## Questions Answered Wrong
+
+![q14](./assets/networking/q14.png)
+
+## Results
+
+![results](./assets/networking/results.png)
