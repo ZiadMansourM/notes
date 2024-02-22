@@ -212,3 +212,235 @@ Optimized for high-performance parallel file processing. It is used for machine 
 ### FSx Comparison
 ![fsx-comparison](./assets/storage/fsx-comparison.png)
 
+
+## S3 (Simple Storage Service)
+Object storage service. That provides industry-leading scalability, data availability, security, and performance. 
+
+:::note Bucket Naming
+S3 bucket names must be globally unique across all AWS accounts.
+:::
+
+### S3 Availability
+
+:::tip
+S3 is `region specific`. But inside console it will list all the buckets from all regions.
+:::
+
+
+![s3-availability](./assets/storage/s3-availability.png)
+
+
+### S3 Restrictions
+- S3 can handle `unlimited` amount of objects.
+- Maximum size of an object is `5TB`.
+- An AWS account supports `100 buckets` by default. But this number can be increased to `1,000` by requesting a service limit increase.
+
+
+### Storage Classes
+Provides different levels of data access, resiliency, and cost.
+
+![s3-storage-classes](./assets/storage/s3-classes-map.png)
+
+### S3 Standard (default)
+Objects are replicated across at least `three AZs`. You get `eleven 9's` of durability. low latency. Charged `per GB per month` and for `egrees` data transfer.
+
+### S3 Standard-IA (Infrequent Access)
+For data that is accessed less frequently, but requires rapid access when needed. Lower storage cost than S3 Standard. Charged `per GB per month` and for `egrees` data transfer.
+
+Also, eleven 9's of durability. And objects are replicated across at least `three AZs`.
+
+:::warning Extra Charges
+- Every time you access an object, you will be charged for a `retrieval fee`.
+- At minimum, you will be charged for `30 days` of storage.
+- Minimum object size charge is `128KB`.
+:::
+
+### S3 One Zone-IA
+Objects are stored in a single AZ. Cheaper than S3 Standard-IA. Immediate access when needed. But less resilient than S3 Standard-IA. Data is still `replicated within the same AZ`.
+
+:::warning Extra Charges
+- Every time you access an object, you will be charged for a `retrieval fee`.
+- At minimum, you will be charged for `30 days` of storage.
+- Minimum object size charge is `128KB`.
+:::
+
+
+### S3 Glacier-instant
+All about data that is rarely accessed. Archived data. Data is retrieved immediately. And replicated across at least `three AZs`. And provides `eleven 9's` of durability. Charged per GB per month and for `egrees` data transfer.
+
+:::warning Extra Charges
+- Every time you access an object, you will be charged for a `retrieval fee`.
+- At minimum, you will be charged for `90 days` of storage.
+- Minimum object size charge is `128KB`.
+:::
+
+
+### S3 Glacier Flexible
+Not immediately accessible. Not publicly accessible. 
+
+#### Options to retrieve data
+- **Bulk**: 5-12 hours.
+- **Expedited**: 1-5 minutes.
+- **Standard**: 3-5 hours.
+
+:::warning Extra Charges
+- Every time you access an object, you will be charged for a `retrieval fee`.
+- At minimum, you will be charged for `90 days` of storage.
+- Minimum object size charge is `40KB`.
+:::
+
+:::tip what happens
+During retrieval, objects are stored in s3 Standard-IA class temporarily.
+:::
+
+### S3 Glacier Deep Archive
+Cheapest storage class. Not immediately accessible. Not publicly accessible.
+
+:::warning Extra Charges
+- Every time you access an object, you will be charged for a `retrieval fee`.
+- At minimum, you will be charged for `180 days` of storage.
+- Minimum object size charge is `40KB`.
+:::
+
+#### Options to retrieve data
+- **Standard**: 12 hours.
+- **Bulk**: 48 hours.
+
+:::tip what happens
+During retrieval, objects are stored in s3 Standard-IA class temporarily.
+:::
+
+### S3 Intelligent-Tiering
+- Automatically reduces storage costs by intelligently moving data to the most cost-effective access tier.
+- Apart from the cost of a storage class an object gets assigned to, all objects will also incur a monthly `monitoring and automation` fee per `1,000` objects.
+
+
+### S3 Versioning
+- Versioning is on a `per-bucket` basis.
+- E.g. Upload might overwrite an existing object with same key.
+- Buckets states:
+    - Unversioned.
+    - Versioning Enabled.
+    - Versioning Suspended.
+
+:::warning Versioning
+Once you enable versioning, you can't disable it. But you can `suspend` it.
+:::
+
+![versioning](./assets/storage/versioning.png)
+
+:::danger Restore Deleted Object
+You can restore a deleted object. By, deleting the delete marker.
+> You can delete specific versions by select then `permanently delete`. No going back tho.
+:::
+
+### Visioning Pricing
+You will be charged for all versions. e.g. version-one is 10 GB and version-two is 5 GB. You will be charged for 15 GB.
+
+![suspending](./assets/storage/suspending.png)
+
+### Multi-factor Authentication (MFA) Delete
+![mfa-delete](./assets/storage/mfa-delete.png)
+
+
+### S3 ACl and Resource Policies
+:::tip default access
+By default, all S3 buckets and objects are `private`. Only the `owner` and `root` account can access them.
+:::
+
+:::note Resource Policies
+Resource policies determines who has access to an S3 resource.
+
+- `Sid`: is an arbitrary name that identifies the statement within the policy.
+- `Principal`: determines who this policy applies to. e.g. `AWS` or `Service`.
+- `Effect`: has two values `Allow` or `Deny`.
+- `Action`: takes a list of actions that the policy will allow or deny.
+- `Resource`: takes a list of resources' arn that the policy will apply to.
+- `Condition`: takes a list of conditions that must be met for the policy to be applied. 
+:::
+
+### IAM Policies vs Resource Policies
+- **IAM Policies**: Attached to a user, group, or role. Determines what actions a user can perform. `Can only be applied to authenticated AWS users`.
+- **Resource Policies**: Attached to a resource. Determines who can access the resource and what actions they can perform. Can be applied to `authenticated`, `unauthenticated` and `anonymous` users.
+- They work together. E.g. we have to make sure that the IAM policy and the resource policy are not denying the user access to the resource.
+
+![policy-conflict](./assets/storage/policy-conflict.png)
+
+
+### S3 ACL
+Has a legacy access control mechanism that provides IAM. Not recommended to use. It was inflexible and had only five rules. You can't apply the, to a group of objects. `Can be used but not recommended`.
+
+![s3-acl](./assets/storage/s3-acl.png)
+
+
+### S3 Bucket Policies
+- You can find examples [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/example-bucket-policies.html).
+- Actions list [here](https://docs.aws.amazon.com/AmazonS3/latest/API/API_Operations.html).
+
+
+### S3 Pre-signed URLs
+
+#### Overview
+
+![pre-signed](./assets/storage/pre-signed.png)
+
+#### Membership Play Video
+
+![play-video](./assets/storage/play-video.png)
+
+#### Membership Upload Video
+
+![upload-video](./assets/storage/upload-video.png)
+
+
+:::note
+- When creating a pre-signed URL, an expiration date must be provided.
+- Expiration duration of maximum 7 days using an IAM user is provided.
+- If an IAM user does not have access to an S3 bucket, a pre-signed URL can still be generated using that account.
+- The pre-signed URL doesn't give you access to a bucket; however, it allows you to send a request to S3 as the user that generated the pre-signed URL.
+:::
+
+
+### S3 Access Points
+
+<Tabs>
+
+<TabItem value="Bucket Policies">
+
+![before](./assets/storage/before.png)
+
+</TabItem>
+
+<TabItem value="Access Points">
+
+![after](./assets/storage/after.png)
+
+</TabItem>
+
+</Tabs>
+
+
+### Access Points with VPCs
+
+![access-vpc](./assets/storage/access-vpc.png)
+
+
+### Access Point Policy
+
+You can view docs examples [here](https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-points-policies.html#access-points-policy-examples).
+
+![access-policy](./assets/storage/access-policy.png)
+
+
+## AWS Backup 
+AWS Backup and Disaster Recovery.
+
+### Disaster Recovery
+The process of planning and responding to events that could cause `data loss` or `downtime`. Types can be:
+- **Natural**: Earthquakes, floods, hurricanes, ...etc.
+- **Man-made**: Cyber attacks, human error, ...etc.
+
+
+### Why Disaster Recovery
+
+![why-dr](./assets/storage/why-dr.png)
