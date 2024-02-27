@@ -1,6 +1,7 @@
 ---
 sidebar_position: 2
 title: Network Services
+description: AWS Network Services
 ---
 
 ```mdx-code-block

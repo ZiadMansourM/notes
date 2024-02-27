@@ -1,6 +1,7 @@
 ---
 sidebar_position: 3
 title: Storage Services
+description: AWS Storage Services
 ---
 
 ```mdx-code-block

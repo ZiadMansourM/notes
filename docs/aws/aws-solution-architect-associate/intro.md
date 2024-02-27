@@ -1,6 +1,7 @@
 ---
 sidebar_position: 1
 title: AWS SAA Introduction
+description: AWS Solution Architect Associate Certification
 ---
 
 # AWS Solution Architect Associate
