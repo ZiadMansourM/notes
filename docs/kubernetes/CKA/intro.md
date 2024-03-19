@@ -1049,14 +1049,56 @@ Both the above commands have their own challenges. While one of them cannot acce
 </details>
 
 ### kubectl apply
+All the three are compared to identify the differences between them. 
+
+![Imperative vs Declarative](./assets/intro/imperative-vs-declarative-8.png)
+
+#### Declarative Config
+![Imperative vs Declarative](./assets/intro/imperative-vs-declarative-9.png)
+
+:::note
+The `last applied configuration` is stored in the live k8s object configuration as an annotation. It is in json format. And used by the `kubectl apply` command to determine the changes that need to be made to the object.
+
+```yaml
+metadata:
+ name: myapp-pod
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {
+        "apiVersion": "v1",
+        "kind": "Pod",
+        "metadata": {
+          "name": "myapp-pod",
+          "labels": {
+            "app": "myapp",
+            "type": "front-end"
+          }
+        },
+        "spec": {
+          "containers": [
+            {
+              "name": "nginx-container",
+              "image": "nginx"
+            }
+          ]
+        }
+      }
+```
+:::
 
 
+:::danger
+The above is only done when you run `apply` command.  The `create` or `replace` commands do not store the last applied configuration. 
 
+You must bare in mind not to mix the imperative and declarative approaches while managing the kubernetes objects.
 
+Once you use the apply command, going forward whenever a change is made. The apply command compares all three sections:
+- The `live` configuration.
+- The `last` applied configuration. `Stored within the live configuration as an annotation`.
+- The `local` configuration file
 
-
-
-
+For deciding what changes need to be made to the live configuration.
+:::
 
 
 
