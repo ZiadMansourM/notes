@@ -1099,17 +1099,3 @@ Once you use the apply command, going forward whenever a change is made. The app
 
 For deciding what changes need to be made to the live configuration.
 :::
-
-
-
-
-
-
-
-
-
-
-
-
-
-
