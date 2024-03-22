@@ -35,6 +35,11 @@ kubectl run --restart=Never --image=busybox:1.28.4 static-busybox --dry-run=clie
 kubectl get po -l env=dev --no-headers | wc -l
 ```
 
+```bash title="Hot fix a pod"
+kubectl get po <pod-name> -o yaml > pod.yaml
+vi pod.yaml
+kubectl replace -f pod.yaml --force
+```
 
 
 
