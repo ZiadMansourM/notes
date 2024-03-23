@@ -16,6 +16,8 @@ import TabItem from '@theme/TabItem';
 ## Quick Commands
 ```bash title="Get daemonsets and show their namespace & name only"
 kubectl get daemonsets -A -o custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name
+# Get pod name and node hosted on it
+kubectl get pods -o custom-columns=POD:.metadata.name,NODE:.spec.nodeName
 ```
 
 ```bash title="Identify the kubelet configuration file"
