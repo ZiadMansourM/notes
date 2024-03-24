@@ -196,7 +196,7 @@ We go one minor version at a time, highly dependant on your cluster setup. But `
 > You may or may not have kubelet running on the master node. If cluster setup with by kubeadm then you have kubelet running on the master node as it is running control plane components as pods. But if your setup was from scratch, then you will not see the master node in the output of `kubectl get nodes`. 
 
 ```sh title="Upgrade Our Cluster from v1.11.8 to v1.13.4"
-# ---> Step One 
+# ---> Step One: Prepare repository
 cat /etc/*release* # check the OS version, say Ubuntu
 # This will error
 # `WARNING` do NOT forget to change the version in the following commands, there is different pkg repo for each minor version. E.g. 1.29 if you are at 1.28 and want to reach 1.29.
@@ -207,7 +207,7 @@ apt-get update
 apt update
 apt-cache madison kubeadm # 1.29.3-1.1
 
-# ---> Step Two
+# ---> Step Two: Upgrade kubeadm on the master node
 apt-get upgrade -y kubeadm=1.12.0-00
 ## Or
 apt-mark unhold kubeadm && \
@@ -216,7 +216,7 @@ apt-mark hold kubeadm
 ## Verify the version
 kubeadm version
 
-# ---> Step Three
+# ---> Step Three: Upgrade the control plane components
 kubeadm upgrade plan # shows the plan
 kubeadm upgrade apply v1.12.0 # pulls the necessary images and upgrades the control plane
 ## Or
@@ -244,6 +244,7 @@ kubectl uncordon <node-name>
 
 # ---> Step Six: Worker Nodes. `Correct STEPS` Upgrade kubeadm, update node, drain node, upgrade kubelet, restart kubelet, uncordon node.
 kubectl drain <node-name> 
+# SSH to node01
 apt-get upgrade -y kubeadm=1.12.0-00
 apt-get upgrade -y kubelet=1.12.0-00
 ## Or
@@ -263,15 +264,370 @@ systemctl restart kubelet # Node now is up with the new software version
 kubectl uncordon <node-name>
 ```
 
+## Full Example
+In this example we have a cluster at `v1.28.0` and we want to upgrade it to `v1.29.3`. The cluster was setup with kubeadm. One master node and One worker node.
+
+#### Step One
+Make sure you are using `pkgs.k8s.io` as package repository. The `apt.kubernetes.io` and `yum.kubernetes.io` are _**deprecated**_. Then do apt-get update. 
+> Both on ALL the master and worker nodes.
+
+```bash title="Notice the v1.29"
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list 
+```
+
+```bash title="Notice the v1.29"
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+```
+
+```bash
+apt-get update
+```
+
+You need to determine which patch version you want to upgrade to. So in master node run:
+
+```bash
+apt update
+apt-cache madison kubeadm
+```
+
+#### Step Two
+Upgrade kubeadm on the master node.
+
+```bash
+apt-mark unhold kubeadm && \
+apt-get update && apt-get install -y kubeadm='1.29.3-1.1' && \
+apt-mark hold kubeadm
+```
+
+Verify the version
+
+```bash
+kubeadm version
+```
+
+#### Step Three
+Upgrade the control plane components. Plan first then apply.
+
+```bash
+kubeadm upgrade plan
+kubeadm upgrade apply v1.29.3
+```
+
+Verify the version using:
+```bash
+kubectl get nodes
+```
+
+The above command shows the master node at v1.28.0 because this is the output of kubelet, not api-server itself.
+
+#### Step Four
+Upgrade the kubelet on the master node. First drain the node. Then upgrade the kubelet. Restart kubelet service. Finally, uncordon the node.
+
+```bash
+kubectl drain <node-name> --ignore-daemonsets
+
+apt-mark unhold kubelet kubectl && \
+apt-get update && apt-get install -y kubelet='1.29.3-1.1' kubectl='1.29.3-1.1' && \
+apt-mark hold kubelet kubectl
+
+systemctl daemon-reload
+systemctl restart kubelet
+
+kubectl get nodes
+
+kubectl uncordon <node-name>
+```
+
+#### Step Five
+If any additional control plane nodes are present, repeat the above steps for all control plane nodes. Just the normal above steps but run `kubeadm upgrade node` instead of `apply`.
+
+#### Step Six
+Next Upgrade Worker Nodes, one at a time:
+1. Drain the node.
+2. Upgrade kubeadm on the worker node.
+3. Upgrade kubelet on the worker node.
+4. Update node configuration for the new kubelet version using kubeadm.
+5. Restart kubelet service.
+6. Uncordon the node.
+7. Repeat for all worker nodes.
+
+```bash
+kubectl drain <node-name>
+
+ssh <node-name>
+
+apt-mark unhold kubeadm kubelet kubectl && \
+apt-get update && apt-get install -y kubeadm='1.29.3-1.1' kubelet='1.29.3-1.1' kubectl='1.29.3-1.1' && \
+apt-mark hold kubeadm kubelet kubectl
+
+kubectl upgrade node
+## Or
+kubeadm upgrade node config --kubelet-version v1.29.3
+
+systemctl daemon-reload
+systemctl restart kubelet
+
+kubectl uncordon <node-name>
+```
+
+## Backup and Restore
+In this section we will discuss the various backup and restore methodologies for Kubernetes clusters.
+
+**What should you consider backing up in a k8s cluster?!**
+We know that ETCD cluster is where all cluster-related information is stored. And if your applications are configured to use persistent volumes, then you should also consider backing up the persistent volumes.
+
+> Declarative way is the go for Resource Configurations. Use version control.
+
+**What if objects were created using imperative way?!**
+
+Query kube-api-server is a better approach, using the kubectl or by accessing the API directly. And save all resource configurations for all objects created on the cluster. As a copy. 
+
+E.g. `kubectl get all --all-namespaces -o yaml > all-deploy-services.yaml` This is just for a small resource group. There are many other resource groups that must be considered.
+
+There are tools like ARK by Heptio, Now called `Velero` that can help you backup and restore your cluster. 
+
+## Etcd
+The etcd cluster stores information about the state of our cluster. It stores information about the nodes, pods, services, and all other resources in the cluster.
+
+Instead of backing up resources as before, we can backup the etcd cluster itself. The etcd cluster is hosted on the master nodes. While configuring etcd we can specify the location where all the data would be stored `--data-dir=/var/lib/etcd`. That is the directory that can be configured to be backed up. By your backup tool.
+
+Etcd also comes with a built-in snapshot solution. You can take a snapshot of the etcd database. And store it in a safe location just run `ETCDCTL_API=3 etcdctl snapshot save snapshot.db`. 
+
+You can view the status of the backup using `ETCDCTL_API=3 etcdctl snapshot status snapshot.db`.
+
+To restore the etcd cluster from a snapshot, you need to:
+1. Stop the kube-api-server, as the restore process will require you to restart the etcd cluster. And the kube-api-server depends on it.
+2. Run `ETCDCTL_API=3 etcdctl snapshot restore snapshot.db --data-dir /var/lib/etcd-from-backup`. 
+
+The restore will initialize a new cluster configuration and configures the members of etcd as new members of the new cluster. This is to prevent a new member from accidentally joining an existing cluster. On running this command a new data directory is created. We then configure the etcd configuration file to point to this new data directory. And start the etcd cluster. `--data-dir=/var/lib/etcd-from-backup`. Then `systemctl daemon-reload` and `service etcd restart`. Finally, `service kube-apiserver start`.
+
+THe cluster should be back now in the original state.
+
+:::note
+With all etcd commands remember to specify the certificate files for authentication. And the endpoint to the etcd cluster and the cert certificate and the etcd server certificate and key. As follows:
+
+```bash
+ETCDCTL_API=3 etcdctl snapshot save snapshot.db \
+--endpoints=https://127.0.0.1:2379 \
+--cacert=/etc/etcd/ca.crt \
+--cert=/etc/etcd/etcd-server.crt \
+--key=/etc/etcd/etcd-server.key
+```
+:::
+
+We have discussed two options a backup using etcd and a backup by querying the kube-apiserver. Both have their own pros and cons. If you are using a manged k8s environment, then at times you might not have access to the etcd cluster. In that case, you can use the kube-apiserver to backup the resources. 
+
+:::tip WORKING WITH ETCDCTL
+`etcdctl` is a command line client for [etcd](https://github.com/etcd-io/etcd).
+
+In all our Kubernetes Hands-on labs, the ETCD key-value database is deployed as a static pod on the master. The version used is v3.
+
+To make use of etcdctl for tasks such as back up and restore, make sure that you set the ETCDCTL_API to 3.
+
+You can do this by exporting the variable ETCDCTL_API prior to using the etcdctl client. This can be done as follows `export ETCDCTL_API=3`.
+
+On the Master Node:
+```bash
+export ETCDCTL_API=3
+etcdctl version
+```
+
+To see all the options for a specific sub-command, make use of the -h or –help flag. For example, if you want to take a snapshot of etcd, use `etcdctl snapshot save -h` and keep a note of the mandatory global options.
+
+Since our ETCD database is TLS-Enabled, the following options are mandatory:
+- `--cacert`: verify certificates of TLS-enabled secure servers using this CA bundle.
+- `--cert`: identify secure client using this TLS certificate file.
+- `--endpoints=[127.0.0.1:2379]`: This is the default as ETCD is running on master node and exposed on localhost 2379.
+- `--key`: identify secure client using this TLS key file.
+
+For a detailed explanation on how to make use of the etcdctl command line tool and work with the -h flags, check out the solution video for the Backup and Restore Lab.
+
+Extra:
+- `server certificate`: `--cert-file=/etc/kubernetes/pki/etcd/server.crt` and called `--cert` in the etcdctl commands.
+- `etcd ca certificate`: `--trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt` and called `--cacert` in the etcdctl commands.
+:::
+
+### Backup Example
+```bash
+controlplane ~ ➜  kubectl get pod etcd-controlplane -n kube-system -o json | jq '.spec.containers[0].command'
+[
+  "etcd",
+  "--advertise-client-urls=https://192.19.224.9:2379",
+  "--cert-file=/etc/kubernetes/pki/etcd/server.crt",
+  "--client-cert-auth=true",
+  "--data-dir=/var/lib/etcd",
+  "--experimental-initial-corrupt-check=true",
+  "--experimental-watch-progress-notify-interval=5s",
+  "--initial-advertise-peer-urls=https://192.19.224.9:2380",
+  "--initial-cluster=controlplane=https://192.19.224.9:2380",
+  "--key-file=/etc/kubernetes/pki/etcd/server.key",
+  "--listen-client-urls=https://127.0.0.1:2379,https://192.19.224.9:2379",
+  "--listen-metrics-urls=http://127.0.0.1:2381",
+  "--listen-peer-urls=https://192.19.224.9:2380",
+  "--name=controlplane",
+  "--peer-cert-file=/etc/kubernetes/pki/etcd/peer.crt",
+  "--peer-client-cert-auth=true",
+  "--peer-key-file=/etc/kubernetes/pki/etcd/peer.key",
+  "--peer-trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt",
+  "--snapshot-count=10000",
+  "--trusted-ca-file=/etc/kubernetes/pki/etcd/ca.crt"
+]
+
+controlplane ~ ➜  ETCDCTL_API=3 etcdctl snapshot save /opt/snapshot-pre-boot.db \
+> --endpoints=https://127.0.0.1:2379 \
+> --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+> --cert=/etc/kubernetes/pki/etcd/server.crt \
+> --key=/etc/kubernetes/pki/etcd/server.key
+Snapshot saved at /opt/snapshot-pre-boot.db
+
+controlplane ~ ➜  
+```
+
+### Restore Example
+```bash
+ETCDCTL_API=3 etcdctl snapshot restore /opt/snapshot-pre-boot.db \
+--data-dir /var/lib/etcd-from-backup \
+--endpoints=https://127.0.0.1:2379 \
+--cacert=/etc/kubernetes/pki/etcd/ca.crt \
+--cert=/etc/kubernetes/pki/etcd/server.crt \
+--key=/etc/kubernetes/pki/etcd/server.key
+```
+
+
+:::note
+In this case, we are restoring the snapshot to a different directory but in the same server where we took the backup (the controlplane node) As a result, the only required option for the restore command is the `--data-dir`.
+:::
+
+Next, update the `/etc/kubernetes/manifests/etcd.yaml`:
+We have now restored the etcd snapshot to a new path on the controlplane - `/var/lib/etcd-from-backup`, so, the only change to be made in the YAML file, is to change the hostPath for the volume called `etcd-data` from old directory (/var/lib/etcd) to the new directory (/var/lib/etcd-from-backup).
+
+```yaml
+volumes:
+- hostPath:
+    path: /var/lib/etcd-from-backup
+    type: DirectoryOrCreate
+name: etcd-data
+```
+
+With this change, `/var/lib/etcd` on the container points to `/var/lib/etcd-from-backup` on the `controlplane` (which is what we want).
+
+When this file is updated, the `ETCD` pod is automatically re-created as this is a static pod placed under the `/etc/kubernetes/manifests` directory.
+
+:::note
+As the ETCD pod has changed it will automatically restart, and also `kube-controller-manager` and `kube-scheduler`. Wait 1-2 to mins for this pods to restart. You can run the command: `watch "crictl ps | grep etcd"` to see when the ETCD pod is restarted.
+:::
+
+:::note
+If the etcd pod is not getting `Ready 1/1`, then restart it by `kubectl delete pod -n kube-system etcd-controlplane` and wait 1 minute.
+:::
+
+:::note
+This is the simplest way to make sure that ETCD uses the restored data after the ETCD pod is recreated. You don't have to change anything else.
+:::
+
+:::warning
+If you do change `--data-dir` to `/var/lib/etcd-from-backup` in the ETCD YAML file, make sure that the `volumeMounts` for `etcd-data` is updated as well, with the mountPath pointing to `/var/lib/etcd-from-backup` (THIS COMPLETE STEP IS OPTIONAL AND NEED NOT BE DONE FOR COMPLETING THE RESTORE)
+:::
+
+## Multi Cluster Setup
+```bash
+# Get number of clusters
+kubectl config get-contexts | grep -v NAME | wc -l # Get number of clusters
+kubectl config view # Get all clusters or entire kubeConfig file
+
+kubectl config use-context cluster1
+kubectl config use-context cluster2
+
+# Get current context
+kubectl config current-context
+```
+
+```bash title="Backing an external etcd cluster"
+sudo find /etc/systemd/system/ -name etcd.service
+```
+
+```bash title="List all the etcd members"
+ETCDCTL_API=3 etcdctl member list \
+--endpoints=https://127.0.0.1:2379 \
+--cacert=/etc/etcd/pki/ca.pem \
+--cert=/etc/etcd/pki/etcd.pem \
+--key=/etc/etcd/pki/etcd-key.pem
+```
+
+### External ETCD
+
+```bash
+ps -ef | grep etcd
+# `--advertise-client-urls` ---> `--endpoints`
+# `--cert-file` ---> `--cert`
+# `--key-file` ---> `--key`
+# `--trusted-ca-file` ---> `--cacert`
+--data-dir=/var/lib/etcd-data 
+
+--advertise-client-urls https://192.22.104.9:2379
+--cert-file=/etc/etcd/pki/etcd.pem 
+--key-file=/etc/etcd/pki/etcd-key.pem
+--trusted-ca-file=/etc/etcd/pki/ca.pem
+
+# back up from /opt/cluster2.db
+ETCDCTL_API=3 etcdctl snapshot restore /opt/cluster2.db \
+--data-dir /var/lib/etcd-data-new \
+--endpoints=https://192.22.104.9:2379 \
+--cacert=/etc/etcd/pki/ca.pem \
+--cert=/etc/etcd/pki/etcd.pem \
+--key=/etc/etcd/pki/etcd-key.pem
+
+# Check permission
+ls -l /var/lib/
+chown -R etcd:etcd /var/lib/etcd-data-new
+
+# Update the etcd service file
+sudo find /etc/systemd/system/ -name etcd.service
+vi /etc/systemd/system/etcd.service
+
+# restart etcd
+systemctl daemon-reload
+systemctl restart etcd
+
+# Restart kube-apiserver, scheduler and kubelet
+kubectl delete po -n kube-system kube-apiserver-controlplane kube-scheduler-controlplane
+ssh controlplane
+systemctl restart kubelet
+```
+
+### Staked ETCD
+```bash
+kubectl describe pods -n kube-system <etcd-pod-name>
+
+# Search for: 
+# `--advertise-client-urls` ---> `--endpoints`
+# `--cert-file` ---> `--cert`
+# `--key-file` ---> `--key`
+# `--trusted-ca-file` ---> `--cacert`
+
+
+ssh <master-node>
+
+ETCDCTL_API=3 etcdctl snapshot save /opt/cluster1.db \
+--endpoints=https://192.22.104.17:2379 \
+--cacert=/etc/kubernetes/pki/etcd/ca.crt \
+--cert=/etc/kubernetes/pki/etcd/server.crt \
+--key=/etc/kubernetes/pki/etcd/server.key
+```
+
+## Note
+
+:::note
+Here's a quick tip. In the exam, you won't know if what you did is correct or not, as in the practice tests in this course.
+
+You must verify your work yourself. For example, if the question is to create a pod with a specific image, you must run the `kubectl describe pod` command to verify the pod is created with the correct name and correct image.
+:::
+
 
 ## References
 - [Upgrading kubeadm clusters.](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/)
-
-
-
-
-
-
-
+- [Backing up an etcd cluster.](https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/#backing-up-an-etcd-cluster)
+- [Github Restore ETCD.](https://github.com/etcd-io/website/blob/main/content/en/docs/v3.5/op-guide/recovery.md)
+- [Disaster Recovery for your Kubernetes Clusters [I] - Andy Goldstein & Steve Kriss, Heptio](https://youtu.be/qRPNuT080Hk?si=QbPGZ8JzqHRcq-nM)
 
 
