@@ -286,6 +286,38 @@ Read about the [protections](https://kubernetes.io/docs/concepts/configuration/s
 Having said that, there are other better ways of handling sensitive data like passwords in Kubernetes, such as using tools like Helm Secrets, and [HashiCorp Vault](https://www.vaultproject.io/).
 :::
 
+### CSI Driver
+Kubernetes Secret Store CSI Driver. CSI stands for Container Storage Interface. 
+
+**Why do we need the Secret Store CSI Driver?!**
+
+Usually, we store any credentials in a Kubernetes Secret Object. 
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: database
+data:
+  DB_PASSWORD: cGFzc3dvcmQ=
+```
+
+It is only base64 encoded and not encrypted. So, anyone with access to the cluster can decode it. Totally insecure.
+
+Also a lot of organizations have started using external secret stores things like HashiCorp Vault, AWS Secrets Manager, Google Secret Manager, Azure Key Vault, ...etc. They allow organizations to manage all their secrets in one place and have better control over who can access them.
+
+The Secret Store CSI Driver synchronizes secrets from external APIs and mounts them into containers as volumes. You still get to manage all your secrets in one central place, like hashicorp vault. Do NOT need to check secrets into git.
+
+There are several other tools that helps us manage secrets in kubernetes. Like `Sealed Secrets` and `External Secrets Operator`.
+
+The main advantage of using the Secret Store CSI Driver is that `You no longer store credentials in kubernetes secrets`. Usually, we you use ESO or Sealed Secrets, what is gonna happen is that you gonna grab your secret from an external secret store and you are going to sync it into a kubernetes secret. But here you don't actually create a kubernetes secret. Just polling dynamically from your central secret store.
+
+**What is the benefit of not creating a native k8s secret?!**
+- Minimize attack surface as mush as possible. One less place where we store our secret. Only in our secret manager.
+- Great from a compliance and regulatory perspective. One less platform that has to adhere to the compliance and regulatory bindings. And one less platform that we have to audit.
+
+STOPPED at 05:25 @https://youtu.be/MTnQW9MxnRI?si=_6QVadgUa1vrPgaA&t=325
+
 ## Multi-Container Pods
 Multi-container pods share the same life cycle. They are always scheduled on the same node. They are always started together and stopped together. They share the same network space which means they can refer to each other using localhost. And they have access to the very same storage volume. This way you don't have to establish volume sharing or services between the pods.
 
