@@ -67,6 +67,72 @@ kubectl replace -f pod.yaml --force
 ```
 
 
+```bash title="What is the networking Plugin Used"
+ls /etc/cni/net.d/
+
+#  How many weave peer deployed 
+kubectl get pods -n kube-system -o custom-columns=POD:.metadata.name,NODE:.spec.nodeName
+
+# Identify the name of the bridge network/interface created by weave on each node.
+ip a
+ip a show type bridge
+ip a show weave
+ip link show type bridge
+
+# What is the default gateway configured on the PODs scheduled on node01?
+ssh <node01>
+ip route
+```
+
+```bash title="What network range are the nodes in the cluster part of?!"
+kubectl get nodes # And get internal ip address of the node you are on
+# Use this IP address to find the network interface
+ip a | grep eth0
+ip a show eth0
+ipcalc -b 192.29.184.12
+
+# What is the range of IP addresses configured for PODs on this cluster?
+k -n kube-system get po -o custom-columns=POD:.metadata.name,NODE:.spec.nodeName
+k -n kube-system logs  weave-net-sptm5 weave | grep ipalloc-range
+
+# What is the IP Range configured for the services within the cluster?
+cat /etc/kubernetes/manifests/kube-apiserver.yaml | grep service-cluster-ip-range
+```
+
+
+```bash title="Get All Namespaced Resources"
+kubectl get $(kubectl api-resources --namespaced --verbs=list -o name | paste -sd, -) --ignore-not-found
+
+# Exclude events,events.events.k8s.io
+kubectl get $(kubectl api-resources --namespaced --verbs=list -o name | grep -Ev 'events(\.events\.k8s\.io)?' | paste -sd, -) --ignore-not-found
+
+# Exclude events.events.k8s.io only
+kubectl get $(kubectl api-resources --namespaced --verbs=list -o name | grep -Ev 'events\.events\.k8s\.io' | paste -sd, -) --ignore-not-found
+
+# Add Sort by Name
+kubectl get $(kubectl api-resources --namespaced --sort-by name --verbs=list -o name | grep -Ev 'events\.events\.k8s\.io' | paste -sd, -) --ignore-not-found
+
+# kgr = kubectl get namespaced resources
+alias kgr='kubectl get $(kubectl api-resources --namespaced --sort-by name --verbs=list -o name | grep -Ev 'events\.events\.k8s\.io' | paste -sd, -) --ignore-not-found'
+# kgnr = kubectl get non-namespaced resources
+alias kgnr='kubectl get $(kubectl api-resources --namespaced=false --sort-by name --verbs=list -o name | grep -Ev 'componentstatuses' | paste -sd, -) --ignore-not-found'
+# kgrc = kubectl get resources combined
+alias kgrc='kubectl get $(kubectl api-resources --sort-by name --verbs=list -o name | grep -Ev 'events\.events\.k8s\.io|componentstatuses' | paste -sd, -) --ignore-not-found'
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

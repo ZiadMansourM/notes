@@ -8,6 +8,7 @@ title: "References"
 
 
 ## Articles
+- [Lessons From Our 8 Years Of Kubernetes In Production — Two Major Cluster Crashes, Ditching Self-Managed, Cutting Cluster Costs, Tooling, And More.](https://medium.com/@.anders/learnings-from-our-8-years-of-kubernetes-in-production-two-major-cluster-crashes-ditching-self-0257c09d36cd)
 - [Every Infrastructure Decision I Endorse or Regret after 4 Years Running Infrastructure at a Startup.](https://cep.dev/posts/every-infrastructure-decision-i-endorse-or-regret-after-4-years-running-infrastructure-at-a-startup/)
 - [Deleting an S3 Bucket Costs Money.](https://cloudcasts.io/article/deleting-an-s3-bucket-costs-money)
 - [Go's Declaration Syntax.](https://go.dev/blog/declaration-syntax)
