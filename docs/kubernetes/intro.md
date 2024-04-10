@@ -66,6 +66,11 @@ vi pod.yaml
 kubectl replace -f pod.yaml --force
 ```
 
+```bash title="Watch Resources Changes"
+kubectl get all -w 
+
+watch -n 1 kubectl get all
+```
 
 ```bash title="What is the networking Plugin Used"
 ls /etc/cni/net.d/
