@@ -1,6 +1,8 @@
 # User Defined
 **/.venv
 
+**/.vscode
+
 # Dependencies
 /node_modules
 
