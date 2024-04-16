@@ -3,6 +3,11 @@
 
 **/.vscode
 
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+
+
 # Dependencies
 /node_modules
 
