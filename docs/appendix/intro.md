@@ -13,6 +13,7 @@ title: "References"
 - [Deleting an S3 Bucket Costs Money.](https://cloudcasts.io/article/deleting-an-s3-bucket-costs-money)
 - [Go's Declaration Syntax.](https://go.dev/blog/declaration-syntax)
 - [Faster Multi-Platform Builds: Dockerfile Cross-Compilation Guide.](https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/)
+- [Best practices for using Terraform.](https://cloud.google.com/docs/terraform/best-practices-for-terraform)
 
 
 ## Talks
