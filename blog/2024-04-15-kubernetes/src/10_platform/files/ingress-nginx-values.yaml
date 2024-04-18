@@ -1,0 +1,68 @@
+---
+# Ref: https://github.com/kubernetes/ingress-nginx/blob/main/charts/ingress-nginx/values.yaml
+
+controller:
+  config:
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#compute-full-forwarded-for
+    compute-full-forwarded-for: "true"
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#use-forwarded-headers
+    use-forwarded-headers: "true"
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#proxy-body-size
+    proxy-body-size: "0"
+  
+  # This name we will reference this particular ingress controller
+  # incase you have multiple ingress controllers, you can use
+  # `ingressClassName` to specify which ingress controller to use.
+  # ALSO: For backwards compatibility with ingress.class annotation, use ingressClass. Algorithm is as follows, first ingressClassName is considered, if not present, controller looks for ingress.class annotation. 
+  # Ref: https://github.com/kubernetes/ingress-nginx/tree/main/charts/ingress-nginx
+  # E.g. very often we have `internal` and `external` ingresses in the same cluster.
+  ingressClass: external-nginx
+
+  # New kubernetes APIs starting from 1.18 let us create an ingress class resource
+  ingressClassResource:
+    # ENABLED: Create the IngressClass or not
+    enabled: true
+    # DEFAULT: If true, Ingresses without ingressClassName get assigned to this IngressClass on creation. Ingress creation gets rejected if there are multiple default IngressClasses. Ref: https://kubernetes.io/docs/concepts/services-networking/ingress/#default-ingress-class
+    default: false
+
+  # Pod Anti-Affinity Role: deploys nginx ingress pods on a different nodes
+  # very helpful if you do NOT want to disrupt services during kubernetes rolling
+  # upgrades.
+  # IMPORTANT: try always to use it.
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - ingress-nginx
+        topologyKey: "kubernetes.io/hostname"
+  
+  # Should at least be 2 or configured auto-scaling
+  replicaCount: 1
+
+  # Admission webhooks: verifies the configuration before applying the ingress.
+  # E.g. syntax error in the configuration snippet annotation, the generated
+  # configuration becomes invalid
+  admissionWebhooks:
+    enabled: true
+
+  # Ingress is always deployed with some kind of a load balancer. You may use
+  # annotations supported by your cloud provider to configure it. E.g. in AWS
+  # you can use `aws-load-balancer-type` as the default is `classic`.
+  service:
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      # Also, if you want to have an internal load balancer with only private
+      # IP address. That you can use within your VPC. you can use:
+      # service.beta.kubernetes.io/aws-load-balancer-internal: 0.0.0.0/0
+
+  # We want to enable prometheus metrics on the controller
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      additionalLabels:
+        prometheus: monitor

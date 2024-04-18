@@ -1,8 +1,7 @@
 locals {
-  cluster_name = "eks-cluster-production"
   tags = {
     author                   = "ziadh"
-    "karpenter.sh/discovery" = local.cluster_name
+    "karpenter.sh/discovery" = var.cluster_name
   }
 }
 
@@ -56,9 +55,9 @@ resource "aws_subnet" "public_1" {
   tags = merge(
     local.tags,
     {
-      Name                                          = "public-eu-central-1a"
-      "kubernetes.io/cluster/${local.cluster_name}" = "shared"
-      "kubernetes.io/role/elb"                      = "1"
+      Name                                        = "public-eu-central-1a"
+      "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+      "kubernetes.io/role/elb"                    = "1"
     }
   )
 }
@@ -76,9 +75,9 @@ resource "aws_subnet" "public_2" {
   tags = merge(
     local.tags,
     {
-      Name                                          = "public-eu-central-1b"
-      "kubernetes.io/cluster/${local.cluster_name}" = "shared"
-      "kubernetes.io/role/elb"                      = "1"
+      Name                                        = "public-eu-central-1b"
+      "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+      "kubernetes.io/role/elb"                    = "1"
     }
   )
 }
@@ -92,9 +91,9 @@ resource "aws_subnet" "private_1" {
   tags = merge(
     local.tags,
     {
-      Name                                          = "private-eu-central-1a"
-      "kubernetes.io/cluster/${local.cluster_name}" = "shared"
-      "kubernetes.io/role/internal-elb"             = "1"
+      Name                                        = "private-eu-central-1a"
+      "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+      "kubernetes.io/role/internal-elb"           = "1"
     }
   )
 }
@@ -108,9 +107,9 @@ resource "aws_subnet" "private_2" {
   tags = merge(
     local.tags,
     {
-      Name                                          = "private-eu-central-1b"
-      "kubernetes.io/cluster/${local.cluster_name}" = "shared"
-      "kubernetes.io/role/internal-elb"             = "1"
+      Name                                        = "private-eu-central-1b"
+      "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+      "kubernetes.io/role/internal-elb"           = "1"
     }
   )
 }
@@ -242,7 +241,7 @@ resource "aws_iam_role_policy_attachment" "amazon_eks_cluster_policy" {
 # Resource: aws_eks_cluster
 # https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster
 resource "aws_eks_cluster" "eks" {
-  name = local.cluster_name
+  name = var.cluster_name
 
   # Amazon Resource Name (ARN) of the IAM role that provides permission for
   # the kubernetes control plane to make calls to aws API operations on your 

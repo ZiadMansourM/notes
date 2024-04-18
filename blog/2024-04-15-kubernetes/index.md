@@ -667,6 +667,219 @@ aws eks --region eu-central-1 update-kubeconfig --name eks-cluster-production --
 kubectl get nodes,svc
 ```
 
+### 10_Platform
+In this section we will provision:
+- Kube-Prometheus-Stack.
+- Ingress-Nginx.
+- Cert-Manager.
+
+```hcl title="variables.tf"
+variable "region" {
+  description = "The AWS region to deploy the resources."
+  type        = string
+  default     = "eu-central-1"
+}
+
+variable "profile" {
+  description = "The AWS profile to use."
+  type        = string
+  default     = "terraform"
+}
+
+variable "cluster_name" {
+  description = "The name of the EKS cluster."
+  type        = string
+  default     = "eks-cluster-production"
+}
+
+```
+
+```hcl title="providers.tf"
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "5.45.0"
+    }
+    kubernetes = {
+      source = "hashicorp/kubernetes"
+      version = "2.29.0"
+    }
+    helm = {
+      source = "hashicorp/helm"
+      version = "2.13.0"
+    }
+  }
+}
+
+provider "aws" {
+  region  = var.region
+  profile = var.profile
+}
+
+data "aws_eks_cluster" "cluster" {
+  name = var.cluster_name
+}
+
+data "aws_eks_cluster_auth" "cluster" {
+  name = var.cluster_name
+}
+
+provider "kubernetes" {
+  host = data.aws_eks_cluster.cluster.endpoint
+  token = data.aws_eks_cluster_auth.cluster.token
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = data.aws_eks_cluster.cluster.endpoint
+    token                  = data.aws_eks_cluster_auth.cluster.token
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+  }
+}
+
+```
+
+
+```bash
+# ----> [1]: Kube Prometheus Stack
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+helm search repo kube-prometheus-stack --max-col-width 23
+# Release name: monitoring
+# Helm chart name: kube-prometheus-stack
+helm install monitoring prometheus-community/kube-prometheus-stack \
+--values prometheus-values.yaml \
+--version 58.1.3 \
+--namespace monitoring \
+--create-namespace
+
+
+# ----> [2]: Ingress-Nginx
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+helm search repo ingress-nginx --max-col-width 23
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+--values ingress-values.yaml \
+--version 4.10.0 \
+--namespace ingress-nginx \
+--create-namespace
+
+
+# ----> [3]: Cert-Manager
+helm repo add jetstack https://charts.jetstack.io
+helm repo update
+helm search repo cert-manager --max-col-width 23
+helm install cert-manager jetstack/cert-manager \
+--values cert-manager-values.yaml \
+--version 1.14.4 \
+--namespace cert-manager \
+--create-namespace
+```
+
+
+#### Temp Steps:
+1. Delegate a subdomain to Route53. `*.monitoring.devopsbyexample.io`.
+  1. Create a public hosted zone in Route53.
+    - Domain Name: `monitoring.devopsbyexample.io`.
+    - Type: `Public Hosted Zone`.
+    - Click `Create`.
+  2. Create an NS record in Namecheap.
+  3. Test a subdomain `test.monitoring.devopsbyexample.io` in Route53 and try to resolve it with `dig +short test.monitoring.devopsbyexample.io`. Value could be: `10.10.10.10`.
+2. We will use IRSA: ***IAM Roles for Service Accounts*** to allow the `cert-manager` to manage the `Route53` hosted zone. 
+  1. Create OpenID Connect Provider first:
+    - Open eks service in AWS Console. Then under clusters select the cluster.
+    - Under `Configuration` tab, Copy the `OpenID Connect Provider URL`.
+    - Navigate to IAM Service then `Identity Providers`. Select `Add provider`.
+    - Select `OpenID Connect`, paste url and `Get thumbprint`.
+    - Under Audience: `sts.amazonaws.com`.
+    - Click `Add provider`.
+  2. Create an IAM policy. Name the policy `CertManagerRoute53Access`.
+  ```json
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": "route53:GetChange",
+            "Resource": "arn:aws:route53:::change/*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "route53:ChangeResourceRecordSets",
+                "route53:ListResourceRecordSets"
+            ],
+            "Resource": "arn:aws:route53:::hostedzone/<id>"
+        }
+    ]
+  }
+  ```
+  3. Craete an IAM role and associate it with the kubernetes service account. Under `Roles` click `Create role`.
+    - Select type of trusted entity to be `Web identity`.
+    - Choose the identity provider created in step 1.
+    - For Audience: `sts.amazonaws.com`.
+    - Click next for permissions and attach `CertManagerRoute53Access` policy.
+    - Name the role `cert-manager-acme`.
+  4. To allow only our cert-manager kubernetes account to assume this role, we need to update `Trust Relationship` of the `cert-manager-acme` role. Click edit Trust Relationships:
+    - First we need the name of the service account attached to the cert-manager.
+    - Run `kubectl -n cert-manager get sa cert-manager` called `cert-083-cert-manager`.
+    - Update the trust relationship to be:
+    <Tabs>
+
+    <TabItem value="Before">
+
+    ```json
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "Federated": <OIDC_PROVIDER_ARN>
+          },
+          "Action": "sts:AssumeRoleWithWebIdentity",
+          "Condition": {
+            "StringEquals": {
+              "oidc.eks.eu-central-1.amazonaws.com/id/<CLUSTER_ID>:aud": "sts.amazonaws.com"
+            }
+          }
+        }
+      ]
+    }
+    ```
+
+    </TabItem>
+
+    <TabItem value="After">
+
+    ```json
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "Federated": <OIDC_PROVIDER_ARN>
+          },
+          "Action": "sts:AssumeRoleWithWebIdentity",
+          "Condition": {
+            "StringEquals": {
+              "oidc.eks.eu-central-1.amazonaws.com/id/<CLUSTER_ID>:sub": "system:serviceaccount:cert-manager:cert-083-cert-manager"
+            }
+          }
+        }
+      ]
+    }
+    ```
+
+    </TabItem>
+
+    </Tabs>
+    
+
+
 ## REFERENCES
 - [Faster Multi-Platform Builds: Dockerfile Cross-Compilation Guide](https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/)
 - [containerd image store](https://docs.docker.com/desktop/containerd/)

@@ -1,0 +1,19 @@
+---
+installCRDs: true
+# Helm chart will create the following CRDs:
+# - Issuer
+# - ClusterIssuer
+# - Certificate
+# - CertificateRequest
+# - Order
+# - Challenge
+
+
+# Enable prometheus metrics, and create a service
+# monitor object
+prometheus:
+  # https://github.com/cert-manager/cert-manager/blob/master/deploy/charts/cert-manager/README.template.md#prometheusenabled--bool
+  enabled: true
+  servicemonitor:
+    enabled: true
+    prometheusInstance: monitor
