@@ -329,7 +329,7 @@ locals {
 #### Craete VPC
 
 You can see more at:
-- [aws_vpc]([aws_vpc](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc)) terraform Resource.
+- [aws_vpc](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc) terraform Resource.
 - [EKS Network Requirements](https://docs.aws.amazon.com/eks/latest/userguide/network_reqs.html) documentation.
 
 I choose the cidr block to be `10.0.0.0/16` you can choose them as per your convenience. You can visualize the subnets using [Subnet Calculator](https://www.davidc.net/sites/default/subnets/subnets.html). Also remember:
