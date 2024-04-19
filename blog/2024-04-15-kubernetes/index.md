@@ -1,6 +1,6 @@
 ---
-slug: eks-cluster
-title: EKS Cluster
+slug: eks-with-terraform-cert-manager-ingress-oidc-provider
+title: "Terraformed Odyssey: From Code to Day Two Operation & Beyond"
 authors: [ziadh]
 tags: [kubernetes, eks, terraform, cert-manager, ingress]
 ---
@@ -10,23 +10,39 @@ import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 ```
 
-In this blog we will go through the deployment of the [GoViolin](https://github.com/ZiadMansourM/GoViolin) App. We will aim to deploy a production grade and HA EKS cluster with the following steps:
-- [ ] Dockerize the GoViolin App.
-    - [ ] Utilize multi-stage builds.
-    - [ ] Build a minimal image.
-    - [ ] Support Multi-Architecture.
-- [ ] Provision the EKS cluster using Terraform.
-    - [ ] Use Terraform resources.
-    - [ ] Use Terraform modules.
-- [ ] Add Cert-Manager and Ingress Controller.
-- [ ] Deploy the GoViolin App.
-- [ ] Expose Prometheus and Grafana.
-    - [ ] Expose them to the internet.
-    - [ ] Expose them internally and use VPN connection.
+They say ***to master a new technology, you will have to play with it***. While learning a new technology, I always write down the questions that pops up in my mind. And document it while trying to find answers. You can access my study notes at [notes.sreboy.com](https://notes.sreboy.com/). These series of articles we be a refined version of my notes. I will try to cover the most important concepts and best practices **I learned from documentations, exploring source code on github, github issues threads, other articles, youtube videos and most importantly from trying myself and combing possibilities.**
 
+
+In this article we will go through the deployment of the [GoViolin](https://github.com/ZiadMansourM/GoViolin) app and the [Docker Voting App](https://github.com/dockersamples/example-voting-app). We will aim to deploy a production grade EKS cluster and apply the best practices as much as we can with the following steps:
+- [X] Dockerize the GoViolin App.
+    - [X] Utilize multi-stage builds.
+    - [X] Build a minimal image.
+    - [X] Support ***Multi-Architecture***. E.g. `amd64` and `arm64`.
+    - [X] Use Github actions to build and push the image to Docker hub.
+- [X] Write the manifest files for the Voting App.
+- [X] Provision the EKS cluster using Terraform.
+    - [X] Use Terraform basic resources only no modules.
+- [X] Add and Configure Cert-Manager and Ingress Controller.
+- [X] Automate dns-01 challenge by giving access to Cert-Manager Service account ***ONLY*** to modify records in Route53. We will use terraform and IRSA with oidc provider from eks to achieve that following the `principle of least privilege`.
+- [X] Deploy and Expose the GoViolin App.
+- [X] Deploy the Demo Voting App.
+- [X] Expose Prometheus and Grafana.
+- [X] Delegate the `k8s` subdomain from Namecheap to Route53, then install a wildcard CNAME record pointing at our cluster.
+  - grafana.k8s.sreboy.com
+  - prometheus.k8s.sreboy.com
+  - goviolin.k8s.sreboy.com
+  - vote.k8s.sreboy.com
+
+We will go through many concepts in details but in a bit hurry. Because it is a `From Code to Day Two Operation` article at the end of the day. But in the coming articles we will take a deep dive into each concept e.g.:
+- Docker Engine: Namespaces, cgroups, pivot_root, etc.
+- Deploying two Ingress Nginx Controllers Internal and External. Using helm and VPN to access the internal resources.
+- Restrict access to AWS roles by controlling ***who*** and ***how*** they can assume the role. While automating the whole process.
+- Provision and monitor a highly available kubernetes from scratch. E.g. monitor Certificates expiration dates. And applying best practices to secure the cluster.
+- Maintaining a HA etcd cluster in production.
+- Many more...
 
 ## Dockerize GoViolin
-This app is written in ***Go***. It doesn't have any database dependencies and it's a simple app that serves a webpage with static content.
+This app is written in ***Go***. It doesn't have any database or storage dependencies. Just a simple webapp that serves a static content.
 
 ### How to run app locally
 
@@ -61,7 +77,7 @@ go build -o main
 
 
 ### Dockerfile
-We aim for our docker image to be as minimal as possible. So we will use `multi-stage` builds to achieve this. Also, supporting amd64 and arm64 architectures is a must for our app. Check REFERENCES section for useful resources. In summary, we aim for a `multi-stage` and `multi-platform` Docker image.
+We aim for our docker [image](https://hub.docker.com/repository/docker/ziadmmh/goviolin/general) to be as minimal as possible. So we will use `multi-stage` builds to achieve this. Also, supporting `amd64` and `arm64` architectures is a *MUST* for our app. Check [REFERENCES](#references) section for useful resources. In summary, we aim for a `multi-stage` and `multi-platform` Docker image.
 
 ```Dockerfile
 FROM --platform=$BUILDPLATFORM golang:1.21.5 AS builder
@@ -90,6 +106,11 @@ LABEL org.opencontainers.image.authors="ziadmansour.4.9.2000@gmail.com"
 CMD ["/app/main"]
 ```
 
+:::danger
+Please do NOT forget the `CGO_ENABLED=0` flag. Or you will face a weird error to bug. Enjoy this good read after you finish:
+- [Debugging a weird 'file not found' error by Julia Evans](https://jvns.ca/blog/2021/11/17/debugging-a-weird--file-not-found--error/)
+:::
+
 :::warning Enable Containerd Image Store
 The term multi-platform image refers to a bundle of images for multiple different architectures. Out of the box, the default builder for Docker Desktop doesn't support building multi-platform images.
 
@@ -102,7 +123,7 @@ The containerd image store is ***NOT*** enabled by default. To enable the featur
 1. Navigate to Settings in Docker Desktop.
 2. In the General tab, check Use containerd for pulling and storing images.
 3. Select Apply & Restart.
-> To disable the containerd image store, clear the Use containerd for pulling and storing images checkbox.
+> To ***disable*** the containerd image store, clear the Use containerd for pulling and storing images checkbox.
 
 :::
 
@@ -118,7 +139,7 @@ docker info -f '{{ .DriverStatus }}'
 <TabItem value="Containerd Image Store">
 
 ```bash
-docker build --platform linux/arm64,linux/amd64 --progress plain -t ziadmmh/goviolin:v0.0.2 --push .
+docker build --platform linux/arm64,linux/amd64 --progress plain -t ziadmmh/goviolin:v0.0.1 --push .
 ```
 
 </TabItem>
@@ -126,7 +147,7 @@ docker build --platform linux/arm64,linux/amd64 --progress plain -t ziadmmh/govi
 <TabItem value="Docker Buildx">
 
 ```bash
-docker buildx build --platform linux/arm64,linux/amd64 --progress plain -t ziadmmh/goviolin:v0.0.2 --push .
+docker buildx build --platform linux/arm64,linux/amd64 --progress plain -t ziadmmh/goviolin:v0.0.1 --push .
 ```
 
 </TabItem>
@@ -134,14 +155,21 @@ docker buildx build --platform linux/arm64,linux/amd64 --progress plain -t ziadm
 </Tabs>
 
 ### GitHub Actions
-This is a dummy GitHub Actions workflow that builds and pushes the image to Docker Hub [Repository](https://hub.docker.com/repository/docker/ziadmmh/goviolin/general).
+This is a dummy GitHub Actions workflow that builds, extracts the image labels from Dockerfile, and then pushes the image to Docker Hub [Repository](https://hub.docker.com/repository/docker/ziadmmh/goviolin/general).
+
+:::tip
+It is a better idea to use the [docker meta data action](https://github.com/docker/metadata-action). To extract the image tags from e.g. when you push a new tag to the repository.
+:::
+
+
 
 ```yaml
 name: Test, Build, and Push Multi-Arch Image
 
 on:
   push:
-    branches: [ main, master ]
+    branches:
+    - master
   workflow_dispatch:
 
 jobs:
@@ -177,18 +205,21 @@ jobs:
           push: true
 ```
 
-## EKS Cluster
-- [ ] Provision: 
-    1. `VPC`.
-    2. `Internet Gw`.
-    3. `Subnets`.
-    4. `Elastic IPs`.
-    5. `NAT Gateway`.
-    6. `Route Tables`, `Route Tables Association`.
-    7. `eks-cluster-role`, `eks-cluster-role-attachment` then `EKS Cluster`.
-    8. `eks-node-group-general-role` and its Three different `eks-node-group-general-role-attachment`. Then `aws_eks_node_group`.
-- [ ] Install `CertManager`, `Ingress`, `Prometheus`, and `Grafana`. Configure `IAM` roles and `DNS` needed for them.
-- [ ] Deploy GoViolin App.
+## Provision EKS Cluster
+- [X] Provision: 
+  1. `VPC`.
+  2. `Internet Gw`.
+  3. `Subnets`.
+  4. `Elastic IPs`.
+  5. `NAT Gateway`.
+  6. `Route Tables`, `Route Tables Association`.
+  7. `eks-cluster-role`, `eks-cluster-role-attachment` then `EKS Cluster`.
+  8. `eks-node-group-general-role` and its Three different `eks-node-group-general-role-attachment`. Then `aws_eks_node_group`.
+- [X] Install `CertManager`, `Ingress`, `Prometheus`, and `Grafana`. 
+  - Configure `IAM` roles and `DNS` needed for them.
+- [X] Deploy Applications/Workloads.
+  - Deploy GoViolin App.
+  - Deploy Voting App.
 
 ### Pre-requisites
 First make sure you downloaded `aws-cli` and created `terraform` user with ***programmatic access*** from the AWS Console.
@@ -202,11 +233,15 @@ aws --version
 aws-cli/2.15.38 Python/3.11.8 Darwin/23.4.0 exe/x86_64 prompt/off
 ```
 
+:::note
+The AWS CLI `version 2` is the most recent major version of the AWS CLI and supports all of the latest features. Some features introduced in version 2 are *NOT* backported to version 1 and you must upgrade to access those features.
+:::
+
 #### Create Terraform User
 1. Open AWS Console then navigate to `IAM` Service.
 2. Click on `Users` then `Create User`.
 3. Name user `terraform`.
-4. Click `Next` then `Add user to group` and name it `admin-access-automated-tools`. Attach the `AdministratorAccess` Policy then click `Create user group`. `Next` again, and finally `Create User`.
+4. Click `Next` then `Add user to group` and name it `admin-access-automated-tools`. Attach the `AdministratorAccess` policy then click `Create user group`. `Next` again, and finally `Create User`.
 5. Navigate to `terraform` user and select `Security Credentials` tab.
 6. Click `Create access key` and Select under use case `Command Line Interface (CLI)`.
 7. Read `Alternatives recommended` if you are okay check I understand and click `Create`.
@@ -216,12 +251,12 @@ aws-cli/2.15.38 Python/3.11.8 Darwin/23.4.0 exe/x86_64 prompt/off
 :::tip Access key best practices
 - Never store your access key in plain text, in a code repository, or in code.
 - Disable or delete access key when no longer needed.
-- Enable least-privilege permissions.
+- Enable and stick to least-privilege permissions.
 - Rotate access keys regularly.
 - For more details about managing access keys, see the [best practices for managing AWS access keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html#securing_access-keys).
 :::
 
-```bash
+```bash title="Install Access keys" {5}
 cat $PATH_TO_CREDENTIALS_FILE/terraform_accessKeys.csv
 
 # Enter region: eu-central-1
@@ -234,7 +269,7 @@ cat ~/.aws/credentials
 ```
 
 ### 00_Foundation
-This module provisions the `VPC`, `Subnets`, `NAT Gateway`, and `EKS Cluster`. It also configures the `IAM` roles and `DNS`.
+In this section we will provision the `VPC`, `Internet GW`, `Subnets`, `Elastic IPs`, `NAT Gateway`, `Route Tables`, `EKS Cluster`, `EKS Node Groups`, and `IAM` roles and policies needed.
 
 We will be using the following Terraform providers:
 - [AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
@@ -252,14 +287,19 @@ variable "profile" {
   default     = "terraform"
 }
 
-```
+variable "cluster_name" {
+  description = "The name of the EKS cluster."
+  type        = string
+  default     = "eks-cluster-production"
+}
 
+```
 
 ```hcl title="providers.tf"
 terraform {
   required_providers {
     aws = {
-      source = "hashicorp/aws"
+      source  = "hashicorp/aws"
       version = "5.45.0"
     }
   }
@@ -272,6 +312,10 @@ provider "aws" {
 
 ```
 
+### 00_Foundation main.tf
+Because the `main.tf` file is a bit lengthy, I will break it here to be easier for me to comment and provide addition resources for every related resources.
+
+#### Local variable
 ```hcl title="main.tf"
 locals {
   cluster_name = "eks-cluster-production"
@@ -280,11 +324,25 @@ locals {
     "karpenter.sh/discovery" = local.cluster_name
   }
 }
+```
 
+#### Craete VPC
 
-# Resource: aws_vpc
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc
-# https://docs.aws.amazon.com/eks/latest/userguide/network_reqs.html
+You can see more at:
+- [aws_vpc]([aws_vpc](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc)) terraform Resource.
+- [EKS Network Requirements](https://docs.aws.amazon.com/eks/latest/userguide/network_reqs.html) documentation.
+
+I choose the cidr block to be `10.0.0.0/16` you can choose them as per your convenience. You can visualize the subnets using [Subnet Calculator](https://www.davidc.net/sites/default/subnets/subnets.html). Also remember:
+
+:::info Private IP Addresses
+Prefix | First Ip Address | Last Ip Address | Number of Addresses
+:--: | :--: | :--: | :--:
+10.0.0.0/8 | 10.0.0.0 | 10.255.255.255 | 16,777,216
+172.16.0.0/12 | 172.16.0.0 | 172.31.255.255 | 1,048,576
+192.168.0.0/16 | 192.168.0.0 | 192.168.255.255 | 65,536
+:::
+
+```hcl title="main.tf"
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
 
@@ -302,22 +360,30 @@ resource "aws_vpc" "main" {
 
   tags = merge(local.tags, { Name = "eks-vpc" })
 }
+```
 
+#### Create Internet Gateway
+- [aws_internet_gateway](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/internet_gateway) terraform Resource.
 
-# Resource: aws_internet_gateway
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/internet_gateway
+```hcl title="main.tf"
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
   tags = merge(local.tags, { Name = "eks-igw" })
 }
+```
 
+#### Subnets
+We need two public and two private subnets. Read more [here](https://aws.github.io/aws-eks-best-practices/networking/subnets/#:~:text=When%20both%20the%20public%20and%20private%20endpoints%20are%20enabled%2C%20Kubernetes%20API%20requests%20from%20within%20the%20VPC%20communicate%20to%20the%20control%20plane%20via%20the%20X%2DENIs%20within%20your%20VPC.%20Your%20cluster%20API%20server%20is%20accessible%20from%20the%20internet.).
 
-# Resource: aws_subnet
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet
-# Divide the VPC into 4 subnets:
-# https://www.davidc.net/sites/default/subnets/subnets.html
+- [aws_subnet](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet) terraform Resource.
+- [Subnet Calculator](https://www.davidc.net/sites/default/subnets/subnets.html).
 
+<Tabs>
+
+<TabItem value="Public Subnet 1">
+
+```hcl title="main.tf"
 resource "aws_subnet" "public_1" {
   vpc_id = aws_vpc.main.id
 
@@ -337,7 +403,13 @@ resource "aws_subnet" "public_1" {
     }
   )
 }
+```
 
+</TabItem>
+
+<TabItem value="Public Subnet 2">
+
+```hcl title="main.tf"
 resource "aws_subnet" "public_2" {
   vpc_id = aws_vpc.main.id
 
@@ -357,7 +429,13 @@ resource "aws_subnet" "public_2" {
     }
   )
 }
+```
 
+</TabItem>
+
+<TabItem value="Private Subnet 1">
+
+```hcl title="main.tf"
 resource "aws_subnet" "private_1" {
   vpc_id = aws_vpc.main.id
 
@@ -373,7 +451,13 @@ resource "aws_subnet" "private_1" {
     }
   )
 }
+```
 
+</TabItem>
+
+<TabItem value="Private Subnet 2">
+
+```hcl title="main.tf"
 resource "aws_subnet" "private_2" {
   vpc_id = aws_vpc.main.id
 
@@ -389,28 +473,48 @@ resource "aws_subnet" "private_2" {
     }
   )
 }
+```
 
+</TabItem>
 
-# Resource: aws_eip
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eip
+</Tabs>
 
+:::note
+Pay a close attention to:
+- The `"kubernetes.io/role/elb"` tag we had on public subnets vs `"kubernetes.io/role/internal-elb"`.
+- The `map_public_ip_on_launch = true` on public subnets ONLY.
+- Without this tag `"kubernetes.io/cluster/${local.cluster_name}"` the EKS cluster will not be able to communicate with the nodes.
+:::
+
+#### Elastic IPs and NAT Gw
+
+- [aws_eip](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eip) terraform Resource.
+- [aws_nat_gateway](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/nat_gateway) terraform Resource.
+
+<Tabs>
+
+<TabItem value="Elastic IP and NAT Gw One">
+
+```hcl title="main.tf"
 resource "aws_eip" "nat_1" {
   depends_on = [aws_internet_gateway.main]
 }
-
-resource "aws_eip" "nat_2" {
-  depends_on = [aws_internet_gateway.main]
-}
-
-
-# Resource: aws_nat_gateway
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/nat_gateway
 
 resource "aws_nat_gateway" "gw_1" {
   subnet_id     = aws_subnet.public_1.id
   allocation_id = aws_eip.nat_1.id
 
   tags = merge(local.tags, { Name = "eks-nat-gw-1" })
+}
+```
+
+</TabItem>
+
+<TabItem value="Elastic IP and NAT Gw Two">
+
+```hcl title="main.tf"
+resource "aws_eip" "nat_2" {
+  depends_on = [aws_internet_gateway.main]
 }
 
 resource "aws_nat_gateway" "gw_2" {
@@ -419,11 +523,24 @@ resource "aws_nat_gateway" "gw_2" {
 
   tags = merge(local.tags, { Name = "eks-nat-gw-2" })
 }
+```
 
+</TabItem>
 
-# Resource: aws_route_table
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table
+</Tabs>
 
+#### Route Tables and Route Tables Association
+
+- [aws_route_table](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table) terraform Resource.
+- [aws_route_table_association](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table_association) terraform Resource.
+
+We will have three route tables and then associate each one of the four subnets with the appropriate route table.
+
+<Tabs>
+
+<TabItem value="Public Route Table">
+
+```hcl title="main.tf"
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -434,7 +551,13 @@ resource "aws_route_table" "public" {
 
   tags = merge(local.tags, { Name = "eks-public-rt" })
 }
+```
 
+</TabItem>
+
+<TabItem value="Private Route Table One">
+
+```hcl title="main.tf"
 resource "aws_route_table" "private_1" {
   vpc_id = aws_vpc.main.id
 
@@ -445,7 +568,13 @@ resource "aws_route_table" "private_1" {
 
   tags = merge(local.tags, { Name = "eks-private-rt-1" })
 }
+```
 
+</TabItem>
+
+<TabItem value="Private Route Table Two">
+
+```hcl title="main.tf"
 resource "aws_route_table" "private_2" {
   vpc_id = aws_vpc.main.id
 
@@ -456,11 +585,15 @@ resource "aws_route_table" "private_2" {
 
   tags = merge(local.tags, { Name = "eks-private-rt-2" })
 }
+```
 
+</TabItem>
 
-# Resource: aws_route_table_association
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table_association
+</Tabs>
 
+And there respective associations:
+
+```hcl title="main.tf"
 resource "aws_route_table_association" "public_1" {
   subnet_id      = aws_subnet.public_1.id
   route_table_id = aws_route_table.public.id
@@ -480,10 +613,18 @@ resource "aws_route_table_association" "private_2" {
   subnet_id      = aws_subnet.private_2.id
   route_table_id = aws_route_table.private_2.id
 }
+```
 
+#### IAM roles for EKS Cluster
 
-# Resource: aws_iam_role
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role
+- [aws_iam_role](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) terraform Resource.
+- [aws_iam_role_policy_attachment](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) terraform Resource.
+
+Note that we will attach the role to the [AmazonEKSClusterPolicy](https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEKSClusterPolicy) policy, it managed by aws. And the assume_role_policy is the one responsible on who can assume this role.
+
+This role is used by the EKS control plane to make calls to AWS API operations on your behalf.
+
+```hcl title="main.tf"
 resource "aws_iam_role" "eks_cluster" {
   name = "eks-cluster"
 
@@ -503,19 +644,17 @@ resource "aws_iam_role" "eks_cluster" {
   POLICY
 }
 
-
-# Resource: aws_iam_role_policy_attachment
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment
 resource "aws_iam_role_policy_attachment" "amazon_eks_cluster_policy" {
-  # https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEKSClusterPolicy
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
-
   role = aws_iam_role.eks_cluster.name
 }
+```
 
+#### EKS Cluster
 
-# Resource: aws_eks_cluster
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster
+- [aws_eks_cluster](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster) terraform Resource.
+
+```hcl title="main.tf"
 resource "aws_eks_cluster" "eks" {
   name = local.cluster_name
 
@@ -525,7 +664,7 @@ resource "aws_eks_cluster" "eks" {
   role_arn = aws_iam_role.eks_cluster.arn
 
   # Desired Kubernetes master version
-  version = "1.29"
+  version = "1.28"
 
   vpc_config {
     endpoint_private_access = false
@@ -547,10 +686,20 @@ resource "aws_eks_cluster" "eks" {
 
   tags = local.tags
 }
+```
 
+#### IAM roles for EKS Node Groups
 
-# Resource: aws_iam_role
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role
+We will create a role named `eks-node-group-general` and then attach three policies to that role:
+- [AmazonEKSWorkerNodePolicy](https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEKSWorkerNodePolicy).
+- [AmazonEKS_CNI_Policy](https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEKS_CNI_Policy).
+- [AmazonEC2ContainerRegistryReadOnly](https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEC2ContainerRegistryReadOnly).
+
+Also we control who can assume the `eks-node-group-general` by the ***assume_role_policy*** below. Which is the EKS worker nodes that will assume this role.
+
+In case you were wondering why we need these policies, please follow the docs [here](https://docs.aws.amazon.com/eks/latest/userguide/create-node-role.html#:~:text=Before%20you%20create%20nodes%2C%20you%20must%20create%20an%20IAM%20role%20with%20the%20following%20permissions%3A) and the above links to know exactly what each policy gives permission to.
+
+```hcl title="main.tf"
 resource "aws_iam_role" "node_group_general" {
   name = "eks-node-group-general"
 
@@ -569,33 +718,46 @@ resource "aws_iam_role" "node_group_general" {
   }
   POLICY
 }
+```
 
+<Tabs>
 
-# Resource: aws_iam_role_policy_attachment
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment
+<TabItem value="AmazonEKSWorkerNodePolicy">
 
+```hcl title="main.tf"
 resource "aws_iam_role_policy_attachment" "amazon_eks_worker_node_policy_general" {
-  # https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEKSWorkerNodePolicy
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-
   role = aws_iam_role.node_group_general.name
 }
+```
 
+</TabItem>
+
+<TabItem value="AmazonEKS_CNI_Policy">
+
+```hcl title="main.tf"
 resource "aws_iam_role_policy_attachment" "amazon_eks_cni_policy_general" {
-  # https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEKS_CNI_Policy
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-
   role = aws_iam_role.node_group_general.name
 }
+```
 
+</TabItem>
+
+<TabItem value="AmazonEC2ContainerRegistryReadOnly">
+
+```hcl title="main.tf"
 resource "aws_iam_role_policy_attachment" "amazon_ec2_container_registry_read_only_general" {
-  # https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEC2ContainerRegistryReadOnly
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-
   role = aws_iam_role.node_group_general.name
 }
+```
 
+</TabItem>
 
+</Tabs>
+
+```hcl title="main.tf"
 # Resource: aws_eks_node_group
 # https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_node_group
 resource "aws_eks_node_group" "nodes_general" {

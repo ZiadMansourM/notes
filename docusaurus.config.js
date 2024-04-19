@@ -90,28 +90,32 @@ const config = {
         style: 'dark',
         links: [
           {
-            title: 'Docs',
+            title: 'Navigate',
             items: [
               {
-                label: 'My Notes',
+                label: 'Notes Hub',
                 to: '/docs/intro',
               },
+              {
+                label: 'My Blog',
+                to: '/blog',
+              }
             ],
           },
           {
             title: 'Community',
             items: [
               {
-                label: 'Stack Overflow',
-                href: 'https://stackoverflow.com/questions/tagged/docusaurus',
+                label: 'Github Account',
+                href: 'https://github.com/ZiadMansourM/',
               },
               {
-                label: 'Discord',
-                href: 'https://discordapp.com/invite/docusaurus',
+                label: 'LinkedIn Account',
+                href: 'https://www.linkedin.com/in/ziad-mansour/',
               },
               {
                 label: 'Twitter',
-                href: 'https://twitter.com/docusaurus',
+                href: 'https://twitter.com/theSREboy',
               },
             ],
           },
@@ -119,13 +123,17 @@ const config = {
             title: 'More',
             items: [
               {
-                label: 'Blog',
-                to: '/blog',
+                label: 'WhatsApp',
+                href: 'https://wa.me/201021799950',
               },
               {
-                label: 'GitHub',
-                href: 'https://github.com/facebook/docusaurus',
+                label: 'Instagram',
+                href: 'https://www.instagram.com/ziad_m_404/',
               },
+              {
+                label: 'Spotify',
+                href: 'https://open.spotify.com/user/31ddrkim3dwxgl7y53xtlse67y6u',
+              }
             ],
           },
         ],
