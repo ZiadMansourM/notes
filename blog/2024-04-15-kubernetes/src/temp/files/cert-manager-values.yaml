@@ -16,15 +16,4 @@ prometheus:
   enabled: true
   servicemonitor:
     enabled: true
-    # prometheusInstance: monitor
-
-
-# DNS-01 Route53
-serviceAccount:
-  annotations:
-    eks.amazonaws.com/role-arn: ${aws_iam_role.cert_manager_acme.arn}
-extraArgs:
-# You need to provide the following to be able to use the IAM role.
-# If you are using cluster issuer you need to replace it with:
-- --cluster-issuer-ambient-credentials
-- --issuer-ambient-credentials
+    prometheusInstance: monitor

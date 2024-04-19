@@ -2,9 +2,6 @@
 # Ref: https://github.com/kubernetes/ingress-nginx/blob/main/charts/ingress-nginx/values.yaml
 
 controller:
-  # name: external-controller
-  # -- Election ID to use for status update, by default it uses the controller name combined with a suffix of 'leader'
-  # electionID: ""
   config:
     # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#compute-full-forwarded-for
     compute-full-forwarded-for: "true"
@@ -28,8 +25,6 @@ controller:
     enabled: true
     # DEFAULT: If true, Ingresses without ingressClassName get assigned to this IngressClass on creation. Ingress creation gets rejected if there are multiple default IngressClasses. Ref: https://kubernetes.io/docs/concepts/services-networking/ingress/#default-ingress-class
     default: false
-    # Ref: https://kubernetes.github.io/ingress-nginx/user-guide/multiple-ingress/#using-ingressclasses
-    # controllerValue: "k8s.io/internal-ingress-nginx"
 
   # Pod Anti-Affinity Role: deploys nginx ingress pods on a different nodes
   # very helpful if you do NOT want to disrupt services during kubernetes rolling
@@ -70,5 +65,5 @@ controller:
     enabled: true
     serviceMonitor:
       enabled: true
-      # additionalLabels:
-      #   prometheus: monitor
+      additionalLabels:
+        prometheus: monitor

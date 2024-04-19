@@ -249,7 +249,7 @@ resource "aws_eks_cluster" "eks" {
   role_arn = aws_iam_role.eks_cluster.arn
 
   # Desired Kubernetes master version
-  version = "1.29"
+  version = "1.28"
 
   vpc_config {
     endpoint_private_access = false
@@ -337,9 +337,9 @@ resource "aws_eks_node_group" "nodes_general" {
   ]
 
   scaling_config {
-    desired_size = 1
-    max_size     = 1
-    min_size     = 1
+    desired_size = 2
+    max_size     = 2
+    min_size     = 2
   }
 
   # Valid Values: AL2_x86_64, BOTTLEROCKET_x86_64
@@ -363,7 +363,7 @@ resource "aws_eks_node_group" "nodes_general" {
   }
 
   # If not specified, then inherited from the EKS master plane.
-  version = "1.29"
+  version = "1.28"
 
   depends_on = [
     aws_iam_role_policy_attachment.amazon_eks_worker_node_policy_general,
