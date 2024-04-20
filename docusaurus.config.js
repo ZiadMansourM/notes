@@ -12,6 +12,13 @@ const config = {
   tagline: 'This is my notes hub to access it from anywhere',
   favicon: 'img/favicon.ico',
 
+  // Enable Mermaid
+  // Ref: https://docusaurus.io/docs/markdown-features/diagrams
+  markdown: {
+    mermaid: true,
+  },
+  themes: ['@docusaurus/theme-mermaid'],
+
   // Set the production url of your site here
   url: 'https://notes.sreboy.com',
   // Set the /<baseUrl>/ pathname under which your site is served
@@ -44,14 +51,14 @@ const config = {
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/',
+            'https://github.com/ZiadMansourM/notes/tree/main',
         },
         blog: {
           showReadingTime: true,
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
           editUrl:
-            'https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/',
+            'https://github.com/ZiadMansourM/notes/tree/main',
         },
         theme: {
           customCss: './src/css/custom.css',
