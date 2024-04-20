@@ -1074,40 +1074,33 @@ The following is just us drafting the plan we will use Terraform not the UI. Do 
 4. Install `Ingress-Nginx` with custom `values.yaml` file.
 5. Install `Cert-Manager` with custom `values.yaml` file.
 
-#### Simplified Dependency Graph
-```md
-kube_prometheus_stack_helm -> 
-
-ingress_nginx_namespace -> 
-
-cert_manager_namespace ->
-
-k8s_public_zone:
-- wildcard_cname
-- cert_manager_route53_access_policy
-
-eks_oidc ->
-
-cert_manager_acme_role ->
-
-(kube_prometheus_stack_helm) && (ingress_nginx_namespace):
-- ingress-nginx_helm -> external_nginx_controller_svc -> wildcard_cname
-
-(cert_manager_acme_role && cert_manager_acme_role_policy) -> aws_iam_role_policy_attachment
-
-(kube_prometheus_stack_helm) && (cert_manager_namespace) && (aws_iam_role_policy_attachment):
-- cert-manager_helm
-```
+### Simplified Dependency Graph
 
 ```mermaid
-graph TD;
-    A-->B;
-    A-->C;
-    B-->D;
-    C-->D;
+graph TD
+  subgraph "Monitoring Stack"
+  kube_prometheus_stack_helm
+  end
+
+  subgraph "DNS"
+  k8s_public_zone
+  end
+
+  subgraph "Ingress Configuration"
+  ingress_nginx_namespace
+  kube_prometheus_stack_helm & ingress_nginx_namespace --> ingress-nginx_helm --> external_nginx_controller_svc --> wildcard_cname
+  external_nginx_controller_svc & k8s_public_zone --> wildcard_cname
+  end
+
+  subgraph "Cert-Manager Configuration"
+  eks_oidc
+  cert_manager_namespace
+  cert_manager_acme_role
+  k8s_public_zone --> cert_manager_route53_access_policy
+  cert_manager_acme_role & cert_manager_route53_access_policy --> cert_manager_acme_role_policy --> aws_iam_role_policy_attachment
+  kube_prometheus_stack_helm & cert_manager_namespace & aws_iam_role_policy_attachment --> cert_manager_helm
+  end
 ```
-
-
 
 
 ## REFERENCES
