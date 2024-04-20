@@ -1,0 +1,51 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: monitoring
+  annotations:
+    cert-manager.io/issuer: letsencrypt-dns01-production-cluster-issuer
+spec:
+  ingressClassName: external-nginx
+  tls:
+  - hosts:
+    - grafana.goviolin.k8s.sreboy.com
+    secretName: grafana-goviolin-k8s-sreboy-com-key-pair
+  rules:
+  - host: grafana.goviolin.k8s.sreboy.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: monitoring-grafana
+            port:
+              number: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus
+  namespace: monitoring
+  annotations:
+    cert-manager.io/issuer: letsencrypt-dns01-production-cluster-issuer
+spec:
+  ingressClassName: external-nginx
+  tls:
+  - hosts:
+    - prometheus.goviolin.k8s.sreboy.com
+    secretName: prometheus-goviolin-k8s-sreboy-com-key-pair
+  rules:
+  - host: prometheus.goviolin.k8s.sreboy.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: monitoring-kube-prometheus-prometheus
+            port:
+              number: 9090
+---

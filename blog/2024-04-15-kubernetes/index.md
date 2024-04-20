@@ -272,6 +272,10 @@ cat ~/.aws/credentials
 ## 00_Foundation
 In this section we will provision the `VPC`, `Internet GW`, `Subnets`, `Elastic IPs`, `NAT Gateway`, `Route Tables`, `EKS Cluster`, `EKS Node Groups`, and `IAM` roles and policies needed.
 
+Note that provisioning the `00_foundation` took from me:
+- ~12 minutes to apply.
+- ~11 minutes to destroy.
+
 We will be using the following Terraform providers:
 - [AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
 
@@ -854,6 +858,10 @@ In this section we will provision:
 - Cert-Manager.
 - Route53 with `*.k8s.sreboy.com` subdomain.
 
+Note that provisioning the `10_platform` took from me:
+- ~4 minutes to apply.
+- ~2 minutes to destroy.
+
 ### Vars
 
 ```hcl title="variables.tf"
@@ -1099,7 +1107,7 @@ graph TD
   cert_manager_namespace
   cert_manager_acme_role
   k8s_public_zone --> cert_manager_route53_access_policy
-  cert_manager_acme_role & cert_manager_route53_access_policy --> cert_manager_acme_role_policy --> aws_iam_role_policy_attachment
+  cert_manager_acme_role & cert_manager_route53_access_policy --> aws_iam_role_policy_attachment
   kube_prometheus_stack_helm & cert_manager_namespace & aws_iam_role_policy_attachment --> cert_manager_helm
   end
 ```
@@ -1114,7 +1122,3616 @@ Use this data source to get the access to the effective Account ID, User ID, and
 data "aws_caller_identity" "current" {}
 ```
 
-### 
+### Kube Prometheus Stack
+
+- [helm_release](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) terraform Resource.
+
+```hcl
+resource "helm_release" "kube_prometheus_stack" {
+  name             = "monitoring"
+  namespace        = "monitoring"
+  repository       = "https://prometheus-community.github.io/helm-charts"
+  chart            = "kube-prometheus-stack"
+  version          = "58.1.3"
+  timeout          = 300
+  atomic           = true
+  create_namespace = true
+
+  values = [
+    "${file("files/kube-prometheus-stack-values.yaml")}"
+  ]
+}
+```
+
+I provided inline comments explaining each value customized in the `kube-prometheus-stack-values.yaml` file.
+
+```yaml title="kube-prometheus-stack-values.yaml"
+---
+# Ref: https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
+
+# Since we are using eks. The control plane is abstracted away from us.
+# We do NOT need to manage ETCD, scheduler, controller-manager, and API server.
+# The following will disable alerts for etcd and kube-scheduler.
+defaultRules:
+  rules:
+    etcd: false
+    kubeScheduler: false
+
+# Then disable servicemonitors for them
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+# Add a custom labels to discover ServiceMonitors
+prometheus:
+  prometheusSpec:
+    ## If true, a nil or {} value for prometheus.prometheusSpec.serviceMonitorSelector will cause the
+    ## prometheus resource to be created with selectors based on values in the helm deployment,
+    ## which will also match the servicemonitors created
+    ##
+    serviceMonitorSelectorNilUsesHelmValues: false
+
+    serviceMonitorSelector: {}
+      # matchLabels:
+        # Prometheus will watch servicemonitors objects
+        # with the following label:
+        # e.g. app.kubernetes.io/monitored-by: prometheus
+        # prometheus: monitor
+    serviceMonitorNamespaceSelector: {}
+      # matchLabels:
+        # By default, prometheus will ONLY detect servicemonitors
+        # in its own namespace `monitoring`. Instruct prometheus
+        # to select service monitors in all namespaces with the
+        # following label:
+        # e.g. app.kubernetes.io/part-of: prometheus
+        # monitoring: prometheus
+
+
+# Last thing update common labels.
+# If you did NOT add it. Prometheus Operator
+# will IGNORE default service monitors created
+# by this helm chart. Consequently, the prometheus 
+# targets section will be empty.
+# commonLabels:
+#   prometheus: monitor
+#   monitoring: prometheus
+
+# Optionally, you can update the grafana admin password
+grafana:
+  adminPassword: testing321
+```
+
+### Route53
+It is time to create the public hosted zone in Route53. I registered my domain name from `Namecheap` and we will delegate the subdomain `k8s.sreboy.com` to Route53.
+
+**Why do we need to delegate the subdomain to Route53?** Because we want to use the `cert-manager` to manage the `Route53` hosted zone. This is done using the `IAM Roles for Service Accounts` (IRSA). Much more easily to be done on Route53 than on Namecheap.
+
+Basically, the steps are:
+1. Create Public Hosted Zone in Route53.
+2. Create a `NS` record in Namecheap to delegate the subdomain to Route53.
+3. (Optionally) Test the delegation with a dummy record.
+
+- [aws_route53_zone](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route53_zone) terraform Resource.
+
+```hcl title="main.tf"
+resource "aws_route53_zone" "k8s" {
+  name = "k8s.sreboy.com"
+}
+
+output "ns_records" {
+  description = "The name servers for the hosted zone"
+  value       = aws_route53_zone.k8s.name_servers
+}
+```
+
+:::warning Retarded Namecheap API
+Namecheap have a very retarded API [docs](https://www.namecheap.com/support/api/intro/#:~:text=You%20should%20whitelist%20at%20least%20one%20IP%20before%20your%20API%20access%20will%20begin%20to%20work.%20Please%20keep%20in%20mind%20that%20only%20IPv4%20addresses%20can%20be%20used.). They require you to whitelist the IP address of the server you are calling their API from. You can NOT add a cider only a static IP address and you have only 10 IP addresses to whitelist. Along side with other hilarious decisions from their API design wise e.g. while adding or updating a record you can DELETE all your previous records if you forgot to set mode from `OVERWRITE` to `MERGE` and if you are calling the API raw you do have to include all your previous records in the call. It is a joke (a bad one).
+
+
+So, instead of using terraform:
+
+- [namecheap_domain_records](https://registry.terraform.io/providers/namecheap/namecheap/latest/docs/resources/domain_records) terraform resource.
+
+```hcl
+resource "namecheap_domain_records" "delegate_to_route53" {
+  domain = "sreboy.com"
+
+  record {
+    hostname = "k8s"
+    type = "NS"
+    address = aws_route53_zone.k8s.name_servers[0]
+  }
+
+  record {
+    hostname = "k8s"
+    type = "NS"
+    address = aws_route53_zone.k8s.name_servers[1]
+  }
+
+  record {
+    hostname = "k8s"
+    type = "NS"
+    address = aws_route53_zone.k8s.name_servers[2]
+  }
+
+  record {
+    hostname = "k8s"
+    type = "NS"
+    address = aws_route53_zone.k8s.name_servers[3]
+  }
+}
+```
+
+I will do it from the UI of Namecheap once the public hosted zone is created in Route53.
+:::
+
+### Ingress-Nginx
+Now it is time to install the Ingress-Nginx controller. In an upcoming article we will see how to deploy two ingress-nginx controllers in the same cluster. One for internal services you will use VPN to access it and the other for external services which we will deploy now.
+
+- [kubernetes_namespace_v1](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1).
+
+
+```hcl title="main.tf"
+resource "kubernetes_namespace_v1" "ingress-nginx" {
+  metadata {
+    name = "ingress-nginx"
+
+    # No need to set labels here. Refer back to Kube
+    # Prometheus Stack values.yaml file.
+    # labels = {
+    #   monitoring : "prometheus"
+    # }
+  }
+}
+
+resource "helm_release" "ingress-nginx" {
+  name       = "ingress-nginx"
+  namespace  = kubernetes_namespace_v1.ingress-nginx.metadata.0.name
+  repository = "https://kubernetes.github.io/ingress-nginx"
+  chart      = "ingress-nginx"
+  version    = "4.0.1"
+  timeout    = 300
+  atomic     = true
+
+  depends_on = [
+    kubernetes_namespace_v1.ingress-nginx
+  ]
+
+  values = [
+    "${file("files/ingress-nginx-values.yaml")}"
+  ]
+}
+
+data "kubernetes_service" "external_nginx_controller" {
+  metadata {
+    name      = "ingress-nginx-controller"
+    namespace = "ingress-nginx"
+  }
+
+  depends_on = [
+    helm_release.ingress-nginx
+  ]
+}
+
+output "external_nginx_dns_lb" {
+  description = "External DNS name for the NGINX Load Balancer."
+  value = data.kubernetes_service.external_nginx_controller.status.0.load_balancer.0.ingress.0.hostname
+}
+
+resource "aws_route53_record" "wildcard_cname" {
+  zone_id = aws_route53_zone.k8s.zone_id
+  name = "*"
+  type = "CNAME"
+  ttl = "300"
+
+  records = [
+    data.kubernetes_service.external_nginx_controller.status.0.load_balancer.0.ingress.0.hostname
+  ]
+}
+```
+
+I provided inline comments explaining each value customized in the `ingress-nginx-values.yaml` file alongside with a link to the official documentation.
+
+```yaml title="ingress-nginx-values.yaml"
+---
+# Ref: https://github.com/kubernetes/ingress-nginx/blob/main/charts/ingress-nginx/values.yaml
+
+controller:
+  # name: external-controller
+  # -- Election ID to use for status update, by default it uses the controller name combined with a suffix of 'leader'
+  # electionID: ""
+  config:
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#compute-full-forwarded-for
+    compute-full-forwarded-for: "true"
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#use-forwarded-headers
+    use-forwarded-headers: "true"
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#proxy-body-size
+    proxy-body-size: "0"
+  
+  # This name we will reference this particular ingress controller
+  # incase you have multiple ingress controllers, you can use
+  # `ingressClassName` to specify which ingress controller to use.
+  # ALSO: For backwards compatibility with ingress.class annotation, use ingressClass. Algorithm is as follows, first ingressClassName is considered, if not present, controller looks for ingress.class annotation. 
+  # Ref: https://github.com/kubernetes/ingress-nginx/tree/main/charts/ingress-nginx
+  # E.g. very often we have `internal` and `external` ingresses in the same cluster.
+  ingressClass: external-nginx
+
+  # New kubernetes APIs starting from 1.18 let us create an ingress class resource
+  ingressClassResource:
+    name: external-nginx
+    # ENABLED: Create the IngressClass or not
+    enabled: true
+    # DEFAULT: If true, Ingresses without ingressClassName get assigned to this IngressClass on creation. Ingress creation gets rejected if there are multiple default IngressClasses. Ref: https://kubernetes.io/docs/concepts/services-networking/ingress/#default-ingress-class
+    default: false
+    # Ref: https://kubernetes.github.io/ingress-nginx/user-guide/multiple-ingress/#using-ingressclasses
+    # controllerValue: "k8s.io/internal-ingress-nginx"
+
+  # Pod Anti-Affinity Role: deploys nginx ingress pods on a different nodes
+  # very helpful if you do NOT want to disrupt services during kubernetes rolling
+  # upgrades.
+  # IMPORTANT: try always to use it.
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - ingress-nginx
+        topologyKey: "kubernetes.io/hostname"
+  
+  # Should at least be 2 or configured auto-scaling
+  replicaCount: 1
+
+  # Admission webhooks: verifies the configuration before applying the ingress.
+  # E.g. syntax error in the configuration snippet annotation, the generated
+  # configuration becomes invalid
+  admissionWebhooks:
+    enabled: true
+
+  # Ingress is always deployed with some kind of a load balancer. You may use
+  # annotations supported by your cloud provider to configure it. E.g. in AWS
+  # you can use `aws-load-balancer-type` as the default is `classic`.
+  service:
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      # Also, if you want to have an internal load balancer with only private
+      # IP address. That you can use within your VPC. you can use:
+      # service.beta.kubernetes.io/aws-load-balancer-internal: 0.0.0.0/0
+
+  # We want to enable prometheus metrics on the controller
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      # additionalLabels:
+      #   prometheus: monitor
+```
+
+### Cert-Manager
+Now it is time to install the `cert-manager`. We will use the `cert-manager` to manage and automate obtaining and renewing SSL certificates for our services.
+
+It is the same part as the block called `Cert-Manager Configuration` in the graph above. But I will divide them into separate blocks for better understanding.
+
+```hcl title="main.tf"
+output "issuer_url_oidc" {
+  description = "Issuer URL for the OpenID Connect identity provider."
+  value       = data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer
+}
+
+output "issuer_url_oidc_replaced" {
+  description = "Issuer URL for the OpenID Connect identity provider without https://."
+  value       = replace(data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer, "https://", "")
+}
+
+data "tls_certificate" "demo" {
+  url = data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer
+}
+
+resource "aws_iam_openid_connect_provider" "eks_oidc" {
+  url             = data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.demo.certificates[0].sha1_fingerprint]
+}
+```
+
+```hcl title="main.tf"
+resource "aws_iam_policy" "cert_manager_route53_access" {
+  name        = "CertManagerRoute53Access"
+  description = "Policy for cert-manager to manage Route53 hosted zone"
+  depends_on = [
+    aws_route53_zone.k8s
+  ]
+  policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "route53:GetChange",
+      "Resource": "arn:aws:route53:::change/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "route53:ChangeResourceRecordSets",
+        "route53:ListResourceRecordSets"
+      ],
+      "Resource": "arn:aws:route53:::hostedzone/${aws_route53_zone.k8s.zone_id}"
+    }
+  ]
+}
+EOF
+
+  # [1]: The first Statement is to be able to get the current state 
+  # of the request, to find out if dns record changes have been 
+  # propagated to all route53 dns servers. 
+  # [2]: The second statement one to update dns records such as txt 
+  # for acme challange. We need to replace `<id>` with the hosted zone id.
+}
+```
+
+The next part `cert_manager_acme` role was the most challenging part to me. As I wanted to make sure that the ***assume_role_policy*** is really restricting the role to be assumed by only the `cert-manager` service account. That is why we created the resources in the first code block above the `eks_oidc` resource.
+
+```hcl title="main.tf"
+resource "aws_iam_role" "cert_manager_acme" {
+  name               = "cert-manager-acme"
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${replace(data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer, "https://", "")}"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "${replace(data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer, "https://", "")}:sub": "system:serviceaccount:cert-manager:cert-manager"
+        }
+      }
+    }
+  ]
+}
+EOF
+}
+```
+
+```hcl title="main.tf"
+resource "aws_iam_role_policy_attachment" "cert_manager_acme" {
+  role       = aws_iam_role.cert_manager_acme.name
+  policy_arn = aws_iam_policy.cert_manager_route53_access.arn
+}
+```
+
+```hcl title="main.tf"
+resource "kubernetes_namespace_v1" "cert-manager" {
+  metadata {
+    name = "cert-manager"
+    
+    # No need to set labels here. Refer back to Kube
+    # Prometheus Stack values.yaml file.
+    # labels = {
+    #   monitoring : "prometheus"
+    # }
+  }
+}
+
+resource "helm_release" "cert-manager" {
+  name       = "cert-manager"
+  namespace  = kubernetes_namespace_v1.cert-manager.metadata.0.name
+  repository = "https://charts.jetstack.io"
+  chart      = "cert-manager"
+  version    = "1.14.4"
+  timeout    = 300
+  atomic     = true
+
+  depends_on = [
+    aws_iam_role_policy_attachment.cert_manager_acme,
+    kubernetes_namespace_v1.cert-manager
+  ]
+
+  values = [
+    <<YAML
+installCRDs: true
+# Helm chart will create the following CRDs:
+# - Issuer
+# - ClusterIssuer
+# - Certificate
+# - CertificateRequest
+# - Order
+# - Challenge
+
+
+# Enable prometheus metrics, and create a service
+# monitor object
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: true
+    # Incase we had more than one prometheus instance
+    # prometheusInstance: monitor
+
+
+# DNS-01 Route53
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: ${aws_iam_role.cert_manager_acme.arn}
+extraArgs:
+# You need to provide the following to be able to use the IAM role.
+# If you are using cluster issuer use `--cluster-issuer-ambient-credentials`
+# and use `--issuer-ambient-credentials` for namespaced issuer. I will activate 
+# both.
+- --cluster-issuer-ambient-credentials
+- --issuer-ambient-credentials
+    YAML
+  ]
+}
+```
+
+### Verify 10_Platform Layer
+- [ ] Verify that an oidc provider is created under the IAM service.
+- [ ] Verify that the dns delegation for the subdomain is working successfully.
+  - Use [whatsmydns](https://www.whatsmydns.net/) to check the DNS propagation. Enter `k8s.sreboy.com` and see if the `NS` records are propagated. you should see the same output produced by output `ns_records` run `terraform output ns_records` to see them again.
+- [ ] Verify that the wildcard CNAME record is created in Route53:
+  - Run `dig +short test.k8s.sreboy.com` and see if it resolves to the external load balancer of the ingress-nginx controller. Or any other subdomain it is a wildcard `dig +short <*>.k8s.sreboy.com`.
+
+## 15_Platform
+In this section we need to:
+- [ ] Create `Issuer` or `ClusterIssuer` for the `cert-manager` so that ingresses can use them to obtain SSL certificates.
+- [ ] Expose these endpoints:
+  - prometheus.k8s.sreboy.com
+  - grafana.k8s.sreboy.com
+  - We will do that by creating an `Ingress` resource for each of them.
+- [ ] Expose Custom Dashboards for the CertManager and Ingress-Nginx Controller.
+- [ ] Deploy the Goviolin app.
+- [ ] Deploy the Voting app.
+
+:::tip
+You can use kustomize or define yaml variables inside the yaml files. Do what you feel comfortable with. I will use the yaml files directly for simplicity.
+:::
+
+### Visualize Plan
+It is an overly simplified graph. Just to help you visualize. And in which namespace objects exists e.g. where the dashboards are deployed ...etc.
+
+
+<Tabs>
+
+<TabItem value="Cluster Issuer">
+
+```mermaid
+graph TD
+  subgraph "Ingress Nginx NS"
+  external_nginx_controller_svc
+
+  ingress_nginx_dashboard
+  end
+  
+  subgraph "Non Namespaced"
+  cluster_issuer
+  end
+
+  subgraph "Monitoring NS"
+
+  external_nginx_controller_svc & cluster_issuer --> prometheus_ingress
+
+  prometheus_ingress --> prometheus_svc --> prometheus_instance
+
+  external_nginx_controller_svc & cluster_issuer --> grafana_ingress
+
+  grafana_ingress --> grafana_svc --> grafana_instance  --> ingress_nginx_dashboard
+  end
+
+  subgraph "Cert Manager NS"
+  grafana_instance --> cert_manager_dashboard
+  end
+
+  subgraph "Goviolin NS"
+
+  external_nginx_controller_svc & cluster_issuer --> goviolin_ingress
+
+  goviolin_ingress --> goviolin_svc --> goviolin_deployment --> replica_set
+
+  replica_set --> pod_One
+  replica_set --> pod_Two
+  replica_set --> pod_Three
+  end
+
+  subgraph "Voting NS"
+
+  external_nginx_controller_svc & cluster_issuer --> voting_ingress
+
+  voting_ingress --> voting_svc --> redis_svc
+  voting_ingress --> result_svc --> postgresql_svc
+
+  redis_svc & postgresql_svc --> dotnet_worker_svc
+  end
+```
+
+</TabItem>
+
+<TabItem value="Namespaced Issuer">
+
+```mermaid
+graph TD
+  subgraph "Ingress Nginx NS"
+  external_nginx_controller_svc
+
+  ingress_nginx_dashboard
+  end
+
+  subgraph "Monitoring NS"
+  monitoring_issuer
+
+  external_nginx_controller_svc & monitoring_issuer --> prometheus_ingress
+
+  prometheus_ingress --> prometheus_svc --> prometheus_instance
+
+  external_nginx_controller_svc & monitoring_issuer --> grafana_ingress
+
+  grafana_ingress --> grafana_svc --> grafana_instance  --> ingress_nginx_dashboard
+  end
+
+  subgraph "Cert Manager NS"
+  grafana_instance --> cert_manager_dashboard
+  end
+
+  subgraph "Goviolin NS"
+
+  goviolin_issuer
+
+  external_nginx_controller_svc & goviolin_issuer --> goviolin_ingress
+
+  goviolin_ingress --> goviolin_svc --> goviolin_deployment --> replica_set
+
+  replica_set --> pod_One
+  replica_set --> pod_Two
+  replica_set --> pod_Three
+  end
+
+  subgraph "Voting NS"
+
+  voting_issuer
+
+  external_nginx_controller_svc & voting_issuer --> voting_ingress
+
+  voting_ingress --> voting_svc --> redis_svc
+  voting_ingress --> result_svc --> postgresql_svc
+
+  redis_svc & postgresql_svc --> dotnet_worker_svc
+  end
+```
+
+</TabItem>
+
+</Tabs>
+
+### Cert-Manager Issuers
+
+<Tabs>
+
+<TabItem value="Cluster Issuer">
+
+```yaml title="issuers.yaml" {2,14,15}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-dns01-production-cluster-issuer
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ziadmansour.4.9.2000@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-production-dns01-key-pair
+    solvers:
+    - dns01:
+        route53:
+          region: eu-central-1
+          hostedZoneID: Z10172763D2LB47VXDFP9
+```
+
+</TabItem>
+
+<TabItem value="Monitoring Issuer">
+
+```yaml title="issuers.yaml" {2,15,16}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-dns01-production
+  namespace: monitoring
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ziadmansour.4.9.2000@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-production-dns01-key-pair
+    solvers:
+    - dns01:
+        route53:
+          region: eu-central-1
+          hostedZoneID: Z10172763D2LB47VXDFP9
+```
+
+</TabItem>
+
+<TabItem value="Goviolin Issuer">
+
+```yaml title="issuers.yaml" {2,15,16}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-dns01-production
+  namespace: goviolin
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ziadmansour.4.9.2000@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-production-dns01-key-pair
+    solvers:
+    - dns01:
+        route53:
+          region: eu-central-1
+          hostedZoneID: Z10172763D2LB47VXDFP9
+```
+
+</TabItem>
+
+<TabItem value="Voting Issuer">
+
+```yaml title="issuers.yaml" {2,15,16}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: letsencrypt-dns01-production
+  namespace: voting
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ziadmansour.4.9.2000@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-production-dns01-key-pair
+    solvers:
+    - dns01:
+        route53:
+          region: eu-central-1
+          hostedZoneID: Z10172763D2LB47VXDFP9
+```
+
+</TabItem>
+
+</Tabs>
+
+### Monitoring Namespace Ingress
+```yaml title="ingress-monitoring-ns.yaml"
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitoring-ns-ingress
+  namespace: monitoring
+  annotations:
+    cert-manager.io/issuer: letsencrypt-dns01-production-cluster-issuer
+spec:
+  ingressClassName: external-nginx
+  tls:
+  - hosts:
+    - grafana.k8s.sreboy.com
+    secretName: grafana-goviolin-k8s-sreboy-com-key-pair
+  - hosts:
+    - prometheus.k8s.sreboy.com
+    secretName: prometheus-goviolin-k8s-sreboy-com-key-pair
+  rules:
+  - host: grafana.k8s.sreboy.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: monitoring-grafana
+            port:
+              number: 80
+  - host: prometheus.k8s.sreboy.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: monitoring-kube-prometheus-prometheus
+            port:
+              number: 9090
+```
+
+### Goviolin Namespace
+```yaml title="goviolin.yaml"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: goviolin
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goviolin
+  namespace: goviolin
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: goviolin
+  template:
+    metadata:
+      labels:
+        app: goviolin
+    spec:
+      containers:
+      - name: goviolin
+        image: ziadmmh/goviolin:v0.0.1
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: goviolin
+  namespace: goviolin
+spec:
+  selector:
+    app: goviolin
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: goviolin
+  namespace: goviolin
+  annotations:
+    cert-manager.io/issuer: letsencrypt-dns01-production-cluster-issuer
+spec:
+  ingressClassName: external-nginx
+  tls:
+  - hosts:
+    - goviolin.k8s.sreboy.com
+    secretName: goviolin-k8s-sreboy-com-key-pair
+  rules:
+  - host: goviolin.k8s.sreboy.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: goviolin
+            port:
+              number: 80
+---
+```
+
+### Custom Dashboards
+We are using the `Kube Prometheus Stack`. It is like the defacto solution to deploy Prometheus and Grafana on kubernetes. It has default targets and dashboards already configured.
+
+Also, it has a unique and an easy way to add custom dashboards:
+- Visit [Grafana Dashboards](https://grafana.com/grafana/dashboards/)
+- Choose the dashboards you like, say:
+  - For Cert Manger: id `20842` AND download json `cert-manager-20842.json`.
+  - For Ingress Nginx: id `14314` AND download json `ingress-nginx-14314.json`.
+- Run the following commands:
+```bash
+kubectl create configmap cert-manager-dashboard-20842 --from-file=$PWD/dashboards/cert-manager-20842.json --dry-run=client -o yaml > cert-manager-dashboard-20842.yaml
+
+kubectl create configmap ingress-nginx-dashboard-14314 --from-file=$PWD/dashboards/ingress-nginx-14314.json --dry-run=client -o yaml > ingress-nginx-dashboard-14314.yaml
+```
+
+We are ***NOT*** finished yet:
+```bash title="Current working directory like this:"
+ziadh@Ziads-MacBook-Air files % tree
+.
+├── cert-manager-dashboard-20842.yaml
+├── dashboards
+│   ├── cert-manager-20842.json
+│   └── ingress-nginx-14314.json
+├── goviolin.yaml
+├── ingress-nginx-dashboard-14314.yaml
+├── issuers.yaml
+└── monitoring.yaml
+
+1 directory, 7 files
+```
+
+Now you need to `vi cert-manager-dashboard-20842.yaml` and `vi ingress-nginx-dashboard-14314.yaml` and add the following lines:
+```yaml
+labels:
+  grafana_dashboard: "1"
+```
+
+This is how grafana discovers the dashboards and registers them.
+
+<details>
+<summary>cert-manager-dashboard-20842.yaml</summary>
+
+```yaml
+apiVersion: v1
+data:
+  cert-manager-20842.json: |-
+    {
+        "annotations": {
+          "list": [
+            {
+              "builtIn": 1,
+              "datasource": {
+                "type": "grafana",
+                "uid": "-- Grafana --"
+              },
+              "enable": true,
+              "hide": true,
+              "iconColor": "rgba(0, 211, 255, 1)",
+              "name": "Annotations & Alerts",
+              "type": "dashboard"
+            }
+          ]
+        },
+        "description": "The dashboard gives an overview of the SSL certs managed by cert-manager in Kubernetes",
+        "editable": true,
+        "fiscalYearStartMonth": 0,
+        "gnetId": 20842,
+        "graphTooltip": 0,
+        "links": [],
+        "panels": [
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "description": "The number if available certificates",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "noValue": "0",
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              "overrides": []
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 0,
+              "y": 0
+            },
+            "id": 1,
+            "options": {
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "value",
+              "wideLayout": true
+            },
+            "pluginVersion": "10.4.0",
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "disableTextWrap": false,
+                "editorMode": "code",
+                "exemplar": false,
+                "expr": "count(certmanager_certificate_ready_status{condition=\"True\", exported_namespace=~\"$namespace\"})",
+                "fullMetaSearch": false,
+                "includeNullMetadata": true,
+                "instant": true,
+                "legendFormat": "__auto",
+                "range": false,
+                "refId": "A",
+                "useBackend": false
+              }
+            ],
+            "title": "Valid Certificates",
+            "type": "stat"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "description": "The number of certificates that will expire within the next 14 days",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "noValue": "0",
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "#EAB839",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              "overrides": []
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 8,
+              "y": 0
+            },
+            "id": 3,
+            "options": {
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            },
+            "pluginVersion": "10.4.0",
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "disableTextWrap": false,
+                "editorMode": "code",
+                "exemplar": false,
+                "expr": "count(certmanager_certificate_expiration_timestamp_seconds{exported_namespace=~\"$namespace\"} < (time()+(14*24*3600)))",
+                "fullMetaSearch": false,
+                "includeNullMetadata": true,
+                "instant": true,
+                "legendFormat": "{{exported_namespace}}/{{name}}",
+                "range": false,
+                "refId": "A",
+                "useBackend": false
+              }
+            ],
+            "title": "Expiring Certificates",
+            "type": "stat"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "description": "Total number of HTTP requests",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "noValue": "0",
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "text",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              "overrides": []
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 16,
+              "y": 0
+            },
+            "id": 2,
+            "options": {
+              "colorMode": "value",
+              "graphMode": "none",
+              "justifyMode": "auto",
+              "orientation": "auto",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showPercentChange": false,
+              "textMode": "auto",
+              "wideLayout": true
+            },
+            "pluginVersion": "10.4.0",
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "disableTextWrap": false,
+                "editorMode": "code",
+                "exemplar": false,
+                "expr": "sum(certmanager_http_acme_client_request_count)",
+                "fullMetaSearch": false,
+                "includeNullMetadata": true,
+                "instant": true,
+                "legendFormat": "__auto",
+                "range": false,
+                "refId": "A",
+                "useBackend": false
+              }
+            ],
+            "title": "Total ACME Requests",
+            "type": "stat"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "description": "Time before the certificates expire",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 14
+                    },
+                    {
+                      "color": "green",
+                      "value": 30
+                    },
+                    {
+                      "color": "dark-green",
+                      "value": 60
+                    }
+                  ]
+                },
+                "unit": "d"
+              },
+              "overrides": []
+            },
+            "gridPos": {
+              "h": 10,
+              "w": 12,
+              "x": 0,
+              "y": 8
+            },
+            "id": 5,
+            "options": {
+              "displayMode": "gradient",
+              "maxVizHeight": 300,
+              "minVizHeight": 16,
+              "minVizWidth": 8,
+              "namePlacement": "left",
+              "orientation": "horizontal",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showUnfilled": true,
+              "sizing": "auto",
+              "valueMode": "color"
+            },
+            "pluginVersion": "10.4.0",
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "editorMode": "code",
+                "exemplar": false,
+                "expr": "sort_desc(certmanager_certificate_expiration_timestamp_seconds{exported_namespace=~\"$namespace\"} - time())/(24*3600)",
+                "format": "time_series",
+                "instant": true,
+                "legendFormat": "{{name}}",
+                "range": false,
+                "refId": "A"
+              }
+            ],
+            "title": "Time to Expiration",
+            "type": "bargauge"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "description": "Time before the certificates are automatically renewed",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "thresholds"
+                },
+                "mappings": [],
+                "min": 0,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    }
+                  ]
+                },
+                "unit": "d"
+              },
+              "overrides": []
+            },
+            "gridPos": {
+              "h": 10,
+              "w": 12,
+              "x": 12,
+              "y": 8
+            },
+            "id": 6,
+            "options": {
+              "displayMode": "gradient",
+              "maxVizHeight": 300,
+              "minVizHeight": 16,
+              "minVizWidth": 8,
+              "namePlacement": "left",
+              "orientation": "horizontal",
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "showUnfilled": true,
+              "sizing": "auto",
+              "valueMode": "color"
+            },
+            "pluginVersion": "10.4.0",
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "editorMode": "code",
+                "exemplar": false,
+                "expr": "sort(certmanager_certificate_renewal_timestamp_seconds{exported_namespace=~\"$namespace\"} - time())/(24*3600)",
+                "format": "time_series",
+                "instant": true,
+                "legendFormat": "{{name}}",
+                "range": false,
+                "refId": "A"
+              }
+            ],
+            "title": "Time to Automatic Renewal",
+            "type": "bargauge"
+          },
+          {
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "description": "Time before the certificates expire",
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "mappings": [],
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    }
+                  ]
+                },
+                "unit": "d"
+              },
+              "overrides": []
+            },
+            "gridPos": {
+              "h": 9,
+              "w": 24,
+              "x": 0,
+              "y": 18
+            },
+            "id": 4,
+            "options": {
+              "legend": {
+                "calcs": [],
+                "displayMode": "list",
+                "placement": "right",
+                "showLegend": true
+              },
+              "tooltip": {
+                "mode": "single",
+                "sort": "none"
+              }
+            },
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "${datasource}"
+                },
+                "editorMode": "code",
+                "expr": "(certmanager_certificate_expiration_timestamp_seconds{exported_namespace=~\"$namespace\"} - time())/(24*3600)",
+                "instant": false,
+                "legendFormat": "{{name}}",
+                "range": true,
+                "refId": "A"
+              }
+            ],
+            "title": "Time to Expiration",
+            "type": "timeseries"
+          }
+        ],
+        "schemaVersion": 39,
+        "tags": [
+          "k8s",
+          "cert-manager"
+        ],
+        "templating": {
+          "list": [
+            {
+              "current": {
+                "selected": true,
+                "text": "Prometheus",
+                "value": "PBFA97CFB590B2093"
+              },
+              "hide": 0,
+              "includeAll": false,
+              "multi": false,
+              "name": "datasource",
+              "options": [],
+              "query": "prometheus",
+              "queryValue": "",
+              "refresh": 1,
+              "regex": "",
+              "skipUrlSync": false,
+              "type": "datasource"
+            },
+            {
+              "allValue": ".*",
+              "current": {
+                "selected": true,
+                "text": "All",
+                "value": "$__all"
+              },
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "definition": "label_values(exported_namespace)",
+              "hide": 0,
+              "includeAll": true,
+              "multi": false,
+              "name": "namespace",
+              "options": [],
+              "query": {
+                "qryType": 1,
+                "query": "label_values(exported_namespace)",
+                "refId": "PrometheusVariableQueryEditor-VariableQuery"
+              },
+              "refresh": 1,
+              "regex": "",
+              "skipUrlSync": false,
+              "sort": 0,
+              "type": "query"
+            }
+          ]
+        },
+        "time": {
+          "from": "now-6h",
+          "to": "now"
+        },
+        "timepicker": {},
+        "timezone": "browser",
+        "title": "Cert-manager-Kubernetes",
+        "uid": "cdhrcds8aosg0c",
+        "version": 1,
+        "weekStart": ""
+    }
+kind: ConfigMap
+metadata:
+  labels:
+    grafana_dashboard: "1"
+  namespace: cert-manager
+  name: cert-manager-dashboard-20842
+```
+
+</details>
+
+<details>
+<summary>ingress-nginx-dashboard-14314.yaml</summary>
+
+```yaml
+apiVersion: v1
+data:
+  ingress-nginx-14314.json: |
+    {
+        "__inputs": [
+          {
+            "name": "DS_PROMETHEUS",
+            "label": "Prometheus",
+            "description": "",
+            "type": "datasource",
+            "pluginId": "prometheus",
+            "pluginName": "Prometheus"
+          }
+        ],
+        "__requires": [
+          {
+            "type": "grafana",
+            "id": "grafana",
+            "name": "Grafana",
+            "version": "6.7.0"
+          },
+          {
+            "type": "datasource",
+            "id": "prometheus",
+            "name": "Prometheus",
+            "version": "5.0.0"
+          },
+          {
+            "type": "panel",
+            "id": "singlestat",
+            "name": "Singlestat",
+            "version": "5.0.0"
+          }
+        ],
+        "annotations": {
+          "list": [
+            {
+              "builtIn": 1,
+              "datasource": "-- Grafana --",
+              "enable": true,
+              "hide": true,
+              "iconColor": "rgba(0, 211, 255, 1)",
+              "name": "Annotations & Alerts",
+              "type": "dashboard"
+            },
+            {
+              "datasource": "",
+              "enable": true,
+              "expr": "sum(changes(nginx_ingress_controller_config_last_reload_successful_timestamp_seconds{instance!=\"unknown\",controller_class=~\"$controller_class\",namespace=~\"$namespace\"}[30s])) by (controller_class)",
+              "hide": false,
+              "iconColor": "rgba(255, 96, 96, 1)",
+              "limit": 100,
+              "name": "Config Reloads",
+              "showIn": 0,
+              "step": "30s",
+              "tagKeys": "controller_class",
+              "tags": [],
+              "titleFormat": "Config Reloaded",
+              "type": "tags"
+            }
+          ]
+        },
+        "editable": true,
+        "gnetId": 14314,
+        "graphTooltip": 0,
+        "id": 35,
+        "iteration": 1619515274866,
+        "links": [],
+        "panels": [
+          {
+            "collapsed": false,
+            "datasource": null,
+            "gridPos": {
+              "h": 1,
+              "w": 24,
+              "x": 0,
+              "y": 0
+            },
+            "id": 31,
+            "panels": [],
+            "title": "Overview",
+            "type": "row"
+          },
+          {
+            "cacheTimeout": null,
+            "colorBackground": false,
+            "colorValue": false,
+            "colors": [
+              "#299c46",
+              "rgba(237, 129, 40, 0.89)",
+              "#d44a3a"
+            ],
+            "datasource": "",
+            "decimals": 1,
+            "description": "This is the total number of requests made in this period (top-right period selected)",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {}
+              },
+              "overrides": []
+            },
+            "format": "short",
+            "gauge": {
+              "maxValue": 100,
+              "minValue": 0,
+              "show": false,
+              "thresholdLabels": false,
+              "thresholdMarkers": true
+            },
+            "gridPos": {
+              "h": 3,
+              "w": 3,
+              "x": 0,
+              "y": 1
+            },
+            "id": 8,
+            "interval": null,
+            "links": [],
+            "mappingType": 1,
+            "mappingTypes": [
+              {
+                "name": "value to text",
+                "value": 1
+              },
+              {
+                "name": "range to text",
+                "value": 2
+              }
+            ],
+            "maxDataPoints": 100,
+            "nullPointMode": "connected",
+            "nullText": null,
+            "postfix": "",
+            "postfixFontSize": "50%",
+            "prefix": "",
+            "prefixFontSize": "50%",
+            "rangeMaps": [
+              {
+                "from": "null",
+                "text": "N/A",
+                "to": "null"
+              }
+            ],
+            "sparkline": {
+              "fillColor": "rgba(31, 118, 189, 0.18)",
+              "full": false,
+              "lineColor": "rgb(31, 120, 193)",
+              "show": false
+            },
+            "tableColumn": "",
+            "targets": [
+              {
+                "expr": "sum(increase(nginx_ingress_controller_requests{ controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[${__range_s}s]))",
+                "format": "time_series",
+                "intervalFactor": 1,
+                "legendFormat": "",
+                "refId": "A"
+              }
+            ],
+            "thresholds": "",
+            "timeFrom": null,
+            "timeShift": null,
+            "title": "Requests (period)",
+            "type": "singlestat",
+            "valueFontSize": "100%",
+            "valueMaps": [
+              {
+                "op": "=",
+                "text": "N/A",
+                "value": "null"
+              }
+            ],
+            "valueName": "current"
+          },
+          {
+            "cacheTimeout": null,
+            "colorBackground": false,
+            "colorValue": false,
+            "colors": [
+              "#299c46",
+              "rgba(237, 129, 40, 0.89)",
+              "#d44a3a"
+            ],
+            "datasource": null,
+            "decimals": 1,
+            "description": "This is the percentage of successful requests over the entire period in the top-right hand corner.\n\nNOTE: Ignoring 404s in this metric, since a 404 is a normal response for errant/invalid request.  This helps prevent this percentage from being affected by typical web scanners and security probes.",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {}
+              },
+              "overrides": []
+            },
+            "format": "percentunit",
+            "gauge": {
+              "maxValue": 100,
+              "minValue": 0,
+              "show": false,
+              "thresholdLabels": false,
+              "thresholdMarkers": true
+            },
+            "gridPos": {
+              "h": 3,
+              "w": 2,
+              "x": 3,
+              "y": 1
+            },
+            "id": 14,
+            "interval": null,
+            "links": [],
+            "mappingType": 1,
+            "mappingTypes": [
+              {
+                "name": "value to text",
+                "value": 1
+              },
+              {
+                "name": "range to text",
+                "value": 2
+              }
+            ],
+            "maxDataPoints": 100,
+            "nullPointMode": "connected",
+            "nullText": null,
+            "postfix": "",
+            "postfixFontSize": "50%",
+            "prefix": "",
+            "prefixFontSize": "50%",
+            "rangeMaps": [
+              {
+                "from": "null",
+                "text": "N/A",
+                "to": "null"
+              }
+            ],
+            "sparkline": {
+              "fillColor": "rgba(31, 118, 189, 0.18)",
+              "full": false,
+              "lineColor": "rgb(31, 120, 193)",
+              "show": true
+            },
+            "tableColumn": "",
+            "targets": [
+              {
+                "expr": "sum(\n  rate(\n    nginx_ingress_controller_requests{status!~\"[4-5].*\", controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[${__range_s}s]\n      )\n   )   \n/ \n(\n  sum(\n    rate(\n      nginx_ingress_controller_requests{ controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[${__range_s}s]\n        )\n     ) - \n  (\n  sum(\n    rate(\n      nginx_ingress_controller_requests{status=~\"404|499\", controller_class=~\"$controller_class\", ingress=~\"$ingress\",namespace=~\"$namespace\", controller_pod=~\"$pod\"}[${__range_s}s]\n        )\n     ) \n  or vector(0)\n  )\n)",
+                "format": "time_series",
+                "interval": "",
+                "intervalFactor": 1,
+                "legendFormat": "",
+                "refId": "A"
+              }
+            ],
+            "thresholds": "",
+            "timeFrom": null,
+            "timeShift": null,
+            "title": "% Success (period)",
+            "type": "singlestat",
+            "valueFontSize": "80%",
+            "valueMaps": [
+              {
+                "op": "=",
+                "text": "N/A",
+                "value": "null"
+              }
+            ],
+            "valueName": "current"
+          },
+          {
+            "cacheTimeout": null,
+            "colorBackground": false,
+            "colorValue": false,
+            "colors": [
+              "#299c46",
+              "rgba(237, 129, 40, 0.89)",
+              "#d44a3a"
+            ],
+            "datasource": null,
+            "decimals": 0,
+            "description": "This is the number of new connections made to the controller in the last minute.  NOTE: This metric does not support the Ingress, Namespace variables, as this is at a lower-level than the actual application.  It does support the others though (Env, Controller Class, Pod)",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {}
+              },
+              "overrides": []
+            },
+            "format": "none",
+            "gauge": {
+              "maxValue": 100,
+              "minValue": 0,
+              "show": false,
+              "thresholdLabels": false,
+              "thresholdMarkers": true
+            },
+            "gridPos": {
+              "h": 3,
+              "w": 2,
+              "x": 5,
+              "y": 1
+            },
+            "id": 6,
+            "interval": null,
+            "links": [],
+            "mappingType": 1,
+            "mappingTypes": [
+              {
+                "name": "value to text",
+                "value": 1
+              },
+              {
+                "name": "range to text",
+                "value": 2
+              }
+            ],
+            "maxDataPoints": 100,
+            "nullPointMode": "connected",
+            "nullText": null,
+            "postfix": "",
+            "postfixFontSize": "50%",
+            "prefix": "",
+            "prefixFontSize": "50%",
+            "rangeMaps": [
+              {
+                "from": "null",
+                "text": "N/A",
+                "to": "null"
+              }
+            ],
+            "sparkline": {
+              "fillColor": "rgba(31, 118, 189, 0.18)",
+              "full": false,
+              "lineColor": "rgb(31, 120, 193)",
+              "show": false
+            },
+            "tableColumn": "",
+            "targets": [
+              {
+                "expr": "sum(avg_over_time(nginx_ingress_controller_nginx_process_connections{state=~\"active\", state=~\"active\",  controller_class=~\"$controller_class\", controller_pod=~\"$pod\"}[$__interval]))",
+                "format": "time_series",
+                "interval": "2m",
+                "intervalFactor": 1,
+                "legendFormat": "{{ingress}}",
+                "refId": "A"
+              }
+            ],
+            "thresholds": "",
+            "timeFrom": null,
+            "timeShift": null,
+            "title": "Conns (2m)",
+            "type": "singlestat",
+            "valueFontSize": "80%",
+            "valueMaps": [
+              {
+                "op": "=",
+                "text": "N/A",
+                "value": "null"
+              }
+            ],
+            "valueName": "current"
+          },
+          {
+            "cacheTimeout": null,
+            "colorBackground": false,
+            "colorValue": false,
+            "colors": [
+              "#299c46",
+              "rgba(237, 129, 40, 0.89)",
+              "#d44a3a"
+            ],
+            "datasource": null,
+            "decimals": 0,
+            "description": "The number of HTTP requests made in the last 1 minute window",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {}
+              },
+              "overrides": []
+            },
+            "format": "short",
+            "gauge": {
+              "maxValue": 100,
+              "minValue": 0,
+              "show": false,
+              "thresholdLabels": false,
+              "thresholdMarkers": true
+            },
+            "gridPos": {
+              "h": 3,
+              "w": 2,
+              "x": 7,
+              "y": 1
+            },
+            "id": 7,
+            "interval": null,
+            "links": [],
+            "mappingType": 1,
+            "mappingTypes": [
+              {
+                "name": "value to text",
+                "value": 1
+              },
+              {
+                "name": "range to text",
+                "value": 2
+              }
+            ],
+            "maxDataPoints": 100,
+            "nullPointMode": "connected",
+            "nullText": null,
+            "postfix": "",
+            "postfixFontSize": "50%",
+            "prefix": "",
+            "prefixFontSize": "50%",
+            "rangeMaps": [
+              {
+                "from": "null",
+                "text": "N/A",
+                "to": "null"
+              }
+            ],
+            "sparkline": {
+              "fillColor": "rgba(31, 118, 189, 0.18)",
+              "full": false,
+              "lineColor": "rgb(31, 120, 193)",
+              "show": false
+            },
+            "tableColumn": "",
+            "targets": [
+              {
+                "expr": "sum(increase(nginx_ingress_controller_requests{ controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[$__interval]))",
+                "format": "time_series",
+                "interval": "2m",
+                "intervalFactor": 1,
+                "legendFormat": "",
+                "refId": "A"
+              }
+            ],
+            "thresholds": "",
+            "timeFrom": null,
+            "timeShift": null,
+            "title": "Reqs (2m)",
+            "type": "singlestat",
+            "valueFontSize": "80%",
+            "valueMaps": [
+              {
+                "op": "=",
+                "text": "N/A",
+                "value": "null"
+              }
+            ],
+            "valueName": "current"
+          },
+          {
+            "cacheTimeout": null,
+            "colorBackground": true,
+            "colorValue": false,
+            "colors": [
+              "#d44a3a",
+              "rgba(237, 129, 40, 0.89)",
+              "#299c46"
+            ],
+            "datasource": null,
+            "description": "This is the percentage of successful requests over the last minute.\n\nNOTE: Ignoring 404s in this metric, since a  404 is a normal response for errant requests",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {}
+              },
+              "overrides": []
+            },
+            "format": "percentunit",
+            "gauge": {
+              "maxValue": 100,
+              "minValue": 0,
+              "show": false,
+              "thresholdLabels": false,
+              "thresholdMarkers": true
+            },
+            "gridPos": {
+              "h": 3,
+              "w": 3,
+              "x": 9,
+              "y": 1
+            },
+            "id": 13,
+            "interval": null,
+            "links": [],
+            "mappingType": 1,
+            "mappingTypes": [
+              {
+                "name": "value to text",
+                "value": 1
+              },
+              {
+                "name": "range to text",
+                "value": 2
+              }
+            ],
+            "maxDataPoints": 100,
+            "nullPointMode": "connected",
+            "nullText": null,
+            "postfix": "",
+            "postfixFontSize": "50%",
+            "prefix": "",
+            "prefixFontSize": "50%",
+            "rangeMaps": [
+              {
+                "from": "null",
+                "text": "N/A",
+                "to": "null"
+              }
+            ],
+            "sparkline": {
+              "fillColor": "rgba(31, 118, 189, 0.18)",
+              "full": false,
+              "lineColor": "rgb(31, 120, 193)",
+              "show": true
+            },
+            "tableColumn": "",
+            "targets": [
+              {
+                "expr": "sum(rate(nginx_ingress_controller_requests{status!~\"[4-5].*\", controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[$__interval])) / \n(sum(rate(nginx_ingress_controller_requests{ controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[$__interval])) - \n(sum(rate(nginx_ingress_controller_requests{status=~\"404|499\", controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[$__interval])) or vector(0)))",
+                "format": "time_series",
+                "interval": "2m",
+                "intervalFactor": 1,
+                "legendFormat": "",
+                "refId": "A"
+              }
+            ],
+            "thresholds": "0.8,0.9",
+            "timeFrom": null,
+            "timeShift": null,
+            "title": "% Success (2m)",
+            "type": "singlestat",
+            "valueFontSize": "100%",
+            "valueMaps": [
+              {
+                "op": "=",
+                "text": "N/A",
+                "value": "null"
+              }
+            ],
+            "valueName": "current"
+          },
+          {
+            "cacheTimeout": null,
+            "colorBackground": false,
+            "colorValue": true,
+            "colors": [
+              "#73BF69",
+              "#73BF69",
+              "#73BF69"
+            ],
+            "datasource": "",
+            "decimals": 0,
+            "description": "This is the number of successful requests in the last minute.  Successful being 1xx or 2xx by the standard HTTP definition.",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {}
+              },
+              "overrides": []
+            },
+            "format": "short",
+            "gauge": {
+              "maxValue": 100,
+              "minValue": 0,
+              "show": false,
+              "thresholdLabels": false,
+              "thresholdMarkers": true
+            },
+            "gridPos": {
+              "h": 3,
+              "w": 3,
+              "x": 12,
+              "y": 1
+            },
+            "id": 12,
+            "interval": null,
+            "links": [],
+            "mappingType": 1,
+            "mappingTypes": [
+              {
+                "name": "value to text",
+                "value": 1
+              },
+              {
+                "name": "range to text",
+                "value": 2
+              }
+            ],
+            "maxDataPoints": 100,
+            "nullPointMode": "connected",
+            "nullText": null,
+            "postfix": "",
+            "postfixFontSize": "50%",
+            "prefix": "",
+            "prefixFontSize": "50%",
+            "rangeMaps": [
+              {
+                "from": "null",
+                "text": "N/A",
+                "to": "null"
+              }
+            ],
+            "sparkline": {
+              "fillColor": "rgba(31, 118, 189, 0.18)",
+              "full": true,
+              "lineColor": "rgb(31, 120, 193)",
+              "show": true
+            },
+            "tableColumn": "",
+            "targets": [
+              {
+                "expr": "sum(increase(nginx_ingress_controller_requests{status=~\"(1|2).*\",  controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[$__interval])) or vector(0)",
+                "format": "time_series",
+                "interval": "2m",
+                "intervalFactor": 1,
+                "legendFormat": "",
+                "refId": "A"
+              }
+            ],
+            "thresholds": "",
+            "title": "HTTP 1/2xx (2m)",
+            "transparent": true,
+            "type": "singlestat",
+            "valueFontSize": "150%",
+            "valueMaps": [
+              {
+                "op": "=",
+                "text": "N/A",
+                "value": "null"
+              }
+            ],
+            "valueName": "current"
+          },
+          {
+            "cacheTimeout": null,
+            "colorBackground": false,
+            "colorPrefix": false,
+            "colorValue": true,
+            "colors": [
+              "#3274D9",
+              "#3274D9",
+              "#3274D9"
+            ],
+            "datasource": "",
+            "decimals": 0,
+            "description": "This is the number of 3xx requests in the last minute.",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {}
+              },
+              "overrides": []
+            },
+            "format": "short",
+            "gauge": {
+              "maxValue": 100,
+              "minValue": 0,
+              "show": false,
+              "thresholdLabels": false,
+              "thresholdMarkers": true
+            },
+            "gridPos": {
+              "h": 3,
+              "w": 3,
+              "x": 15,
+              "y": 1
+            },
+            "id": 10,
+            "interval": null,
+            "links": [],
+            "mappingType": 1,
+            "mappingTypes": [
+              {
+                "name": "value to text",
+                "value": 1
+              },
+              {
+                "name": "range to text",
+                "value": 2
+              }
+            ],
+            "maxDataPoints": 100,
+            "nullPointMode": "connected",
+            "nullText": null,
+            "postfix": "",
+            "postfixFontSize": "50%",
+            "prefix": "",
+            "prefixFontSize": "50%",
+            "rangeMaps": [
+              {
+                "from": "null",
+                "text": "N/A",
+                "to": "null"
+              }
+            ],
+            "sparkline": {
+              "fillColor": "rgba(31, 118, 189, 0.18)",
+              "full": true,
+              "lineColor": "rgb(31, 120, 193)",
+              "show": true
+            },
+            "tableColumn": "",
+            "targets": [
+              {
+                "expr": "sum(increase(nginx_ingress_controller_requests{status=~\"3.*\",  controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[2m]))  or vector(0)",
+                "format": "time_series",
+                "interval": "$__interval",
+                "intervalFactor": 1,
+                "legendFormat": "",
+                "refId": "A"
+              }
+            ],
+            "thresholds": "",
+            "title": "HTTP 3xx (2m)",
+            "transparent": true,
+            "type": "singlestat",
+            "valueFontSize": "150%",
+            "valueMaps": [
+              {
+                "op": "=",
+                "text": "N/A",
+                "value": "null"
+              }
+            ],
+            "valueName": "current"
+          },
+          {
+            "cacheTimeout": null,
+            "colorBackground": false,
+            "colorValue": true,
+            "colors": [
+              "#FF9830",
+              "#FF9830",
+              "#FF9830"
+            ],
+            "datasource": "",
+            "decimals": 0,
+            "description": "This is the number of 4xx requests in the last minute.",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {}
+              },
+              "overrides": []
+            },
+            "format": "short",
+            "gauge": {
+              "maxValue": 100,
+              "minValue": 0,
+              "show": false,
+              "thresholdLabels": false,
+              "thresholdMarkers": true
+            },
+            "gridPos": {
+              "h": 3,
+              "w": 3,
+              "x": 18,
+              "y": 1
+            },
+            "id": 18,
+            "interval": null,
+            "links": [],
+            "mappingType": 1,
+            "mappingTypes": [
+              {
+                "name": "value to text",
+                "value": 1
+              },
+              {
+                "name": "range to text",
+                "value": 2
+              }
+            ],
+            "maxDataPoints": 100,
+            "nullPointMode": "connected",
+            "nullText": null,
+            "postfix": "",
+            "postfixFontSize": "50%",
+            "prefix": "",
+            "prefixFontSize": "50%",
+            "rangeMaps": [
+              {
+                "from": "null",
+                "text": "N/A",
+                "to": "null"
+              }
+            ],
+            "sparkline": {
+              "fillColor": "rgba(31, 118, 189, 0.18)",
+              "full": true,
+              "lineColor": "rgb(31, 120, 193)",
+              "show": true
+            },
+            "tableColumn": "",
+            "targets": [
+              {
+                "expr": "sum(increase(nginx_ingress_controller_requests{status=~\"4.*\",  controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[$__interval]))  or vector(0)",
+                "format": "time_series",
+                "interval": "2m",
+                "intervalFactor": 1,
+                "legendFormat": "",
+                "refId": "A"
+              }
+            ],
+            "thresholds": "",
+            "title": "HTTP 4xx (2m)",
+            "transparent": true,
+            "type": "singlestat",
+            "valueFontSize": "150%",
+            "valueMaps": [
+              {
+                "op": "=",
+                "text": "N/A",
+                "value": "null"
+              }
+            ],
+            "valueName": "current"
+          },
+          {
+            "cacheTimeout": null,
+            "colorBackground": false,
+            "colorValue": true,
+            "colors": [
+              "#F2495C",
+              "#F2495C",
+              "#F2495C"
+            ],
+            "datasource": "",
+            "decimals": 0,
+            "description": "This is the number of 5xx requests in the last minute.",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {}
+              },
+              "overrides": []
+            },
+            "format": "short",
+            "gauge": {
+              "maxValue": 100,
+              "minValue": 0,
+              "show": false,
+              "thresholdLabels": false,
+              "thresholdMarkers": true
+            },
+            "gridPos": {
+              "h": 3,
+              "w": 3,
+              "x": 21,
+              "y": 1
+            },
+            "id": 11,
+            "interval": null,
+            "links": [],
+            "mappingType": 1,
+            "mappingTypes": [
+              {
+                "name": "value to text",
+                "value": 1
+              },
+              {
+                "name": "range to text",
+                "value": 2
+              }
+            ],
+            "maxDataPoints": 100,
+            "nullPointMode": "connected",
+            "nullText": null,
+            "postfix": "",
+            "postfixFontSize": "50%",
+            "prefix": "",
+            "prefixFontSize": "50%",
+            "rangeMaps": [
+              {
+                "from": "null",
+                "text": "N/A",
+                "to": "null"
+              }
+            ],
+            "sparkline": {
+              "fillColor": "rgba(31, 118, 189, 0.18)",
+              "full": true,
+              "lineColor": "rgb(31, 120, 193)",
+              "show": true
+            },
+            "tableColumn": "",
+            "targets": [
+              {
+                "expr": "sum(increase(nginx_ingress_controller_requests{status=~\"5.*\", controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[$__interval])) or vector(0)",
+                "format": "time_series",
+                "interval": "2m",
+                "intervalFactor": 1,
+                "legendFormat": "",
+                "refId": "A"
+              }
+            ],
+            "thresholds": "",
+            "title": "HTTP 5xx (2m)",
+            "transparent": true,
+            "type": "singlestat",
+            "valueFontSize": "150%",
+            "valueMaps": [
+              {
+                "op": "=",
+                "text": "N/A",
+                "value": "null"
+              }
+            ],
+            "valueName": "current"
+          },
+          {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": null,
+            "description": "This is a total number of requests broken down by the ingress.  This can help get a sense of scale in relation to each other.",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {},
+                "links": []
+              },
+              "overrides": []
+            },
+            "fill": 1,
+            "fillGradient": 0,
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 0,
+              "y": 4
+            },
+            "hiddenSeries": false,
+            "id": 2,
+            "legend": {
+              "avg": false,
+              "current": false,
+              "max": false,
+              "min": false,
+              "show": false,
+              "total": false,
+              "values": false
+            },
+            "lines": true,
+            "linewidth": 1,
+            "links": [],
+            "nullPointMode": "null",
+            "options": {
+              "alertThreshold": true
+            },
+            "paceLength": 10,
+            "percentage": false,
+            "pluginVersion": "7.4.3",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+              {
+                "expr": "sum(increase(nginx_ingress_controller_requests{ controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[$__interval])) by (ingress)",
+                "format": "time_series",
+                "interval": "2m",
+                "intervalFactor": 1,
+                "legendFormat": "{{ingress}}",
+                "refId": "A"
+              }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "HTTP Requests / Ingress",
+            "tooltip": {
+              "shared": true,
+              "sort": 0,
+              "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+              "buckets": null,
+              "mode": "time",
+              "name": null,
+              "show": true,
+              "values": []
+            },
+            "yaxes": [
+              {
+                "$$hashKey": "object:3838",
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": true
+              },
+              {
+                "$$hashKey": "object:3839",
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": true
+              }
+            ],
+            "yaxis": {
+              "align": false,
+              "alignLevel": null
+            }
+          },
+          {
+            "aliasColors": {
+              "HTTP 101": "dark-green"
+            },
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": null,
+            "description": "The breakdown of the various HTTP status codes of the requests handled within' this period that matches the variables chosen above.\n\nThis chart helps notice and dive into which service is having failures and of what kind.",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {},
+                "links": []
+              },
+              "overrides": []
+            },
+            "fill": 1,
+            "fillGradient": 0,
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 8,
+              "y": 4
+            },
+            "hiddenSeries": false,
+            "id": 3,
+            "legend": {
+              "avg": false,
+              "current": false,
+              "max": false,
+              "min": false,
+              "show": true,
+              "total": false,
+              "values": false
+            },
+            "lines": true,
+            "linewidth": 1,
+            "links": [],
+            "nullPointMode": "null as zero",
+            "options": {
+              "alertThreshold": true
+            },
+            "paceLength": 10,
+            "percentage": false,
+            "pluginVersion": "7.4.3",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+              {
+                "$$hashKey": "object:154",
+                "alias": "/HTTP [1-2].*/i",
+                "color": "#37872D"
+              },
+              {
+                "$$hashKey": "object:155",
+                "alias": "/HTTP 4.*/i",
+                "color": "#C4162A"
+              },
+              {
+                "$$hashKey": "object:156",
+                "alias": "HTTP 404",
+                "color": "#FF9830"
+              },
+              {
+                "$$hashKey": "object:285",
+                "alias": "HTTP 499",
+                "color": "#FA6400"
+              },
+              {
+                "$$hashKey": "object:293",
+                "alias": "/HTTP 5.*/i",
+                "color": "#C4162A"
+              }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+              {
+                "expr": "sum(increase(nginx_ingress_controller_requests{ controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[$__interval])) by (status)",
+                "format": "time_series",
+                "interval": "2m",
+                "intervalFactor": 1,
+                "legendFormat": "HTTP {{status}}",
+                "refId": "A"
+              }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "HTTP Status Codes",
+            "tooltip": {
+              "shared": true,
+              "sort": 0,
+              "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+              "buckets": null,
+              "mode": "time",
+              "name": null,
+              "show": true,
+              "values": []
+            },
+            "yaxes": [
+              {
+                "$$hashKey": "object:182",
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": true
+              },
+              {
+                "$$hashKey": "object:183",
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": true
+              }
+            ],
+            "yaxis": {
+              "align": false,
+              "alignLevel": null
+            }
+          },
+          {
+            "aliasColors": {},
+            "bars": true,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": null,
+            "description": "The total number of HTTP requests made within' each period",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {},
+                "links": []
+              },
+              "overrides": []
+            },
+            "fill": 1,
+            "fillGradient": 0,
+            "gridPos": {
+              "h": 8,
+              "w": 8,
+              "x": 16,
+              "y": 4
+            },
+            "hiddenSeries": false,
+            "id": 4,
+            "legend": {
+              "avg": false,
+              "current": false,
+              "max": false,
+              "min": false,
+              "show": false,
+              "total": false,
+              "values": false
+            },
+            "lines": false,
+            "linewidth": 1,
+            "links": [],
+            "nullPointMode": "null",
+            "options": {
+              "alertThreshold": true
+            },
+            "paceLength": 10,
+            "percentage": false,
+            "pluginVersion": "7.4.3",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+              {
+                "expr": "sum(increase(nginx_ingress_controller_requests{ controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[$__interval]))",
+                "format": "time_series",
+                "interval": "5m",
+                "intervalFactor": 1,
+                "legendFormat": "{{ingress}}",
+                "refId": "A"
+              }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Total HTTP Requests",
+            "tooltip": {
+              "shared": true,
+              "sort": 0,
+              "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+              "buckets": null,
+              "mode": "time",
+              "name": null,
+              "show": false,
+              "values": []
+            },
+            "yaxes": [
+              {
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": true
+              },
+              {
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": false
+              }
+            ],
+            "yaxis": {
+              "align": false,
+              "alignLevel": null
+            }
+          },
+          {
+            "collapsed": false,
+            "datasource": null,
+            "gridPos": {
+              "h": 1,
+              "w": 24,
+              "x": 0,
+              "y": 12
+            },
+            "id": 33,
+            "panels": [],
+            "title": "Latency",
+            "type": "row"
+          },
+          {
+            "aliasColors": {},
+            "bars": false,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": null,
+            "decimals": 1,
+            "description": "This graph can help assess and help us meet SLA requirements as far as the responsive time of our services.\n\nFor a more detailed latency graph broken out by ingress please open the closed tab at the bottom because it is very CPU intensive.",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {},
+                "links": []
+              },
+              "overrides": []
+            },
+            "fill": 1,
+            "fillGradient": 0,
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 0,
+              "y": 13
+            },
+            "hiddenSeries": false,
+            "id": 29,
+            "legend": {
+              "alignAsTable": true,
+              "avg": true,
+              "current": false,
+              "hideEmpty": true,
+              "hideZero": true,
+              "max": true,
+              "min": true,
+              "rightSide": true,
+              "show": true,
+              "total": false,
+              "values": true
+            },
+            "lines": true,
+            "linewidth": 1,
+            "links": [],
+            "nullPointMode": "null",
+            "options": {
+              "alertThreshold": true
+            },
+            "percentage": false,
+            "pluginVersion": "7.4.3",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [
+              {
+                "$$hashKey": "object:294",
+                "alias": "Average",
+                "color": "#F2495C",
+                "fill": 0,
+                "points": true
+              },
+              {
+                "$$hashKey": "object:316",
+                "alias": "0.95",
+                "color": "rgb(44, 0, 182)"
+              },
+              {
+                "$$hashKey": "object:422",
+                "alias": "0.9",
+                "color": "#1F60C4"
+              },
+              {
+                "$$hashKey": "object:430",
+                "alias": "0.75",
+                "color": "#8AB8FF",
+                "fill": 1
+              },
+              {
+                "$$hashKey": "object:440",
+                "alias": "0.5",
+                "color": "rgb(255, 255, 255)",
+                "fill": 0
+              },
+              {
+                "$$hashKey": "object:4144",
+                "alias": "0.99",
+                "color": "#8F3BB8",
+                "fill": 0
+              }
+            ],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+              {
+                "expr": "histogram_quantile(\n  0.99,\n  sum by (le)(\n    rate(\n      nginx_ingress_controller_request_duration_seconds_bucket{\n        status!=\"404|500|304|499\",\n        controller_class=~\"$controller_class\",\n        ingress=~\"$ingress\",\n        namespace=~\"$namespace\",\n        controller_pod=~\"$pod\"\n      }[$__interval]\n    )\n  )\n)",
+                "format": "time_series",
+                "interval": "5m",
+                "intervalFactor": 1,
+                "legendFormat": "0.99",
+                "refId": "A"
+              },
+              {
+                "expr": "histogram_quantile(\n  0.95,\n  sum by (le)(\n    rate(\n      nginx_ingress_controller_request_duration_seconds_bucket{\n        status!=\"404|500|304|499\",\n        controller_class=~\"$controller_class\",\n        ingress=~\"$ingress\",\n        namespace=~\"$namespace\",\n        controller_pod=~\"$pod\"\n      }[$__interval]\n    )\n  )\n)",
+                "format": "time_series",
+                "hide": false,
+                "interval": "5m",
+                "intervalFactor": 1,
+                "legendFormat": "0.95",
+                "refId": "B"
+              },
+              {
+                "expr": "histogram_quantile(\n  0.9,\n  sum by (le)(\n    rate(\n      nginx_ingress_controller_request_duration_seconds_bucket{\n        status!=\"404|500|304|499\",\n        controller_class=~\"$controller_class\",\n        ingress=~\"$ingress\",\n        namespace=~\"$namespace\",\n        controller_pod=~\"$pod\"\n      }[$__interval]\n    )\n  )\n)",
+                "format": "time_series",
+                "hide": false,
+                "interval": "5m",
+                "intervalFactor": 1,
+                "legendFormat": "0.9",
+                "refId": "C"
+              },
+              {
+                "expr": "histogram_quantile(\n  0.5,\n  sum by (le)(\n    rate(\n      nginx_ingress_controller_request_duration_seconds_bucket{\n        status!=\"404|500|304|499\",\n        controller_class=~\"$controller_class\",\n        ingress=~\"$ingress\",\n        namespace=~\"$namespace\",\n        controller_pod=~\"$pod\"\n      }[$__interval]\n    )\n  )\n)",
+                "format": "time_series",
+                "hide": false,
+                "interval": "5m",
+                "intervalFactor": 1,
+                "legendFormat": "0.5",
+                "refId": "D"
+              },
+              {
+                "expr": "histogram_quantile(\n  0.75,\n  sum by (le)(\n    rate(\n      nginx_ingress_controller_request_duration_seconds_bucket{\n        status!=\"404|500|304|499\",\n        controller_class=~\"$controller_class\",\n        ingress=~\"$ingress\",\n        namespace=~\"$namespace\",\n        controller_pod=~\"$pod\"\n      }[$__interval]\n    )\n  )\n)",
+                "format": "time_series",
+                "hide": false,
+                "interval": "5m",
+                "intervalFactor": 1,
+                "legendFormat": "0.75",
+                "refId": "E"
+              },
+              {
+                "expr": "(\n\n(sum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"0.01\"\n}[$__interval]))\n* 0.01)\n\n+\n\n((sum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"0.1\"\n}[$__interval]))\n-\nsum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"0.01\"\n}[$__interval])))\n* 0.1)\n\n+\n\n((sum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"1\"\n}[$__interval]))\n-\nsum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"0.1\"\n}[$__interval])))\n* 1)\n\n+\n\n((sum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"10\"\n}[$__interval]))\n-\nsum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"1\"\n}[$__interval])))\n* 10 )\n\n+\n\n((sum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"30\"\n}[$__interval]))\n-\nsum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"10\"\n}[$__interval])))\n* 30 )\n\n+\n\n((sum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"60\"\n}[$__interval]))\n-\nsum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"30\"\n}[$__interval])))\n* 60 )\n\n+\n\n((sum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"+Inf\"\n}[$__interval]))\n-\nsum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"60\"\n}[$__interval])))\n* 120 )\n\n) / \n\nsum(increase(nginx_ingress_controller_request_duration_seconds_bucket{\n    status!=\"404|500|304\",\n    controller_class=~\"$controller_class\",\n    ingress=~\"$ingress\",\n    namespace=~\"$namespace\",\n    controller_pod=~\"$pod\",\n    le=\"+Inf\"\n}[$__interval]))\n",
+                "format": "time_series",
+                "hide": false,
+                "interval": "5m",
+                "intervalFactor": 1,
+                "legendFormat": "Average",
+                "refId": "F"
+              }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Latency (Average Percentiles)",
+            "tooltip": {
+              "shared": true,
+              "sort": 2,
+              "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+              "buckets": null,
+              "mode": "time",
+              "name": null,
+              "show": true,
+              "values": []
+            },
+            "yaxes": [
+              {
+                "$$hashKey": "object:1035",
+                "format": "s",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": true
+              },
+              {
+                "$$hashKey": "object:1036",
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": false
+              }
+            ],
+            "yaxis": {
+              "align": false,
+              "alignLevel": null
+            }
+          },
+          {
+            "cards": {
+              "cardPadding": null,
+              "cardRound": null
+            },
+            "color": {
+              "cardColor": "#C4162A",
+              "colorScale": "linear",
+              "colorScheme": "interpolateTurbo",
+              "exponent": 0.5,
+              "mode": "spectrum"
+            },
+            "dataFormat": "tsbuckets",
+            "datasource": null,
+            "description": "This graph can help assess and help us meet SLA requirements as far as the responsive time of our services.\n\nFor a more detailed latency graph broken out by ingress please open the closed tab at the bottom because it is very CPU intensive.",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {}
+              },
+              "overrides": []
+            },
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 13
+            },
+            "heatmap": {},
+            "hideZeroBuckets": false,
+            "highlightCards": true,
+            "id": 27,
+            "legend": {
+              "show": true
+            },
+            "links": [],
+            "pluginVersion": "7.4.3",
+            "reverseYBuckets": false,
+            "targets": [
+              {
+                "expr": "sum by (le)(\n  increase(\n    nginx_ingress_controller_request_duration_seconds_bucket{\n      status!=\"404\",status!=\"500\",\n      controller_class =~ \"$controller_class\",\n      namespace =~ \"$namespace\",\n      ingress =~ \"$ingress\"\n    }[$__interval]\n  )\n)",
+                "format": "time_series",
+                "hide": false,
+                "interval": "5m",
+                "intervalFactor": 1,
+                "legendFormat": "{{le}}",
+                "refId": "D"
+              }
+            ],
+            "timeFrom": null,
+            "timeShift": null,
+            "title": "Latency Heatmap",
+            "tooltip": {
+              "show": true,
+              "showHistogram": false
+            },
+            "type": "heatmap",
+            "xAxis": {
+              "show": true
+            },
+            "xBucketNumber": null,
+            "xBucketSize": null,
+            "yAxis": {
+              "decimals": 0,
+              "format": "s",
+              "logBase": 1,
+              "max": null,
+              "min": null,
+              "show": true,
+              "splitFactor": null
+            },
+            "yBucketBound": "auto",
+            "yBucketNumber": null,
+            "yBucketSize": null
+          },
+          {
+            "collapsed": false,
+            "datasource": null,
+            "gridPos": {
+              "h": 1,
+              "w": 24,
+              "x": 0,
+              "y": 21
+            },
+            "id": 35,
+            "panels": [],
+            "title": "Connections",
+            "type": "row"
+          },
+          {
+            "aliasColors": {
+              "New Connections": "purple"
+            },
+            "bars": true,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": null,
+            "description": "NOTE: This does not work per ingress/namespace\n\nThis is the number of new connections opened by the controller",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {},
+                "links": []
+              },
+              "overrides": []
+            },
+            "fill": 1,
+            "fillGradient": 0,
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 0,
+              "y": 22
+            },
+            "hiddenSeries": false,
+            "id": 5,
+            "legend": {
+              "avg": false,
+              "current": false,
+              "max": false,
+              "min": false,
+              "show": false,
+              "total": false,
+              "values": false
+            },
+            "lines": false,
+            "linewidth": 1,
+            "links": [],
+            "nullPointMode": "null",
+            "options": {
+              "alertThreshold": true
+            },
+            "paceLength": 10,
+            "percentage": false,
+            "pluginVersion": "7.4.3",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+              {
+                "expr": "sum(increase(nginx_ingress_controller_nginx_process_connections{state=~\"active\",  controller_class=~\"$controller_class\", controller_pod=~\"$pod\"}[$__interval]))",
+                "format": "time_series",
+                "interval": "2m",
+                "intervalFactor": 1,
+                "legendFormat": "New Connections",
+                "refId": "A"
+              }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "New Connections Opened (Controller / Ingress Pod)",
+            "tooltip": {
+              "shared": true,
+              "sort": 0,
+              "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+              "buckets": null,
+              "mode": "time",
+              "name": null,
+              "show": false,
+              "values": []
+            },
+            "yaxes": [
+              {
+                "$$hashKey": "object:3252",
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": true
+              },
+              {
+                "$$hashKey": "object:3253",
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": false
+              }
+            ],
+            "yaxis": {
+              "align": false,
+              "alignLevel": null
+            }
+          },
+          {
+            "aliasColors": {
+              "Connections": "rgb(255, 200, 4)"
+            },
+            "bars": true,
+            "dashLength": 10,
+            "dashes": false,
+            "datasource": null,
+            "description": "NOTE: This does not work per ingress/namespace\n\nThe total number of connections opened to our ingresses.  If you have a CDN in front of our services, it is not unusual for this to be very low.  If/when we use something like websockets with a persistent connection this can/will be very high.",
+            "fieldConfig": {
+              "defaults": {
+                "custom": {},
+                "links": []
+              },
+              "overrides": []
+            },
+            "fill": 1,
+            "fillGradient": 0,
+            "gridPos": {
+              "h": 8,
+              "w": 12,
+              "x": 12,
+              "y": 22
+            },
+            "hiddenSeries": false,
+            "id": 22,
+            "legend": {
+              "avg": false,
+              "current": false,
+              "max": false,
+              "min": false,
+              "show": false,
+              "total": false,
+              "values": false
+            },
+            "lines": false,
+            "linewidth": 1,
+            "links": [],
+            "nullPointMode": "null",
+            "options": {
+              "alertThreshold": true
+            },
+            "paceLength": 10,
+            "percentage": false,
+            "pluginVersion": "7.4.3",
+            "pointradius": 2,
+            "points": false,
+            "renderer": "flot",
+            "seriesOverrides": [],
+            "spaceLength": 10,
+            "stack": false,
+            "steppedLine": false,
+            "targets": [
+              {
+                "expr": "sum(avg_over_time(nginx_ingress_controller_nginx_process_connections{state=~\"active\", state=~\"active\",  controller_class=~\"$controller_class\", controller_pod=~\"$pod\"}[$__range]))",
+                "format": "time_series",
+                "intervalFactor": 1,
+                "legendFormat": "Connections",
+                "refId": "A"
+              }
+            ],
+            "thresholds": [],
+            "timeFrom": null,
+            "timeRegions": [],
+            "timeShift": null,
+            "title": "Total Connections Open (Controller / Ingress Pod)",
+            "tooltip": {
+              "shared": true,
+              "sort": 0,
+              "value_type": "individual"
+            },
+            "type": "graph",
+            "xaxis": {
+              "buckets": null,
+              "mode": "time",
+              "name": null,
+              "show": false,
+              "values": []
+            },
+            "yaxes": [
+              {
+                "$$hashKey": "object:3098",
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": true
+              },
+              {
+                "$$hashKey": "object:3099",
+                "format": "short",
+                "label": null,
+                "logBase": 1,
+                "max": null,
+                "min": null,
+                "show": false
+              }
+            ],
+            "yaxis": {
+              "align": false,
+              "alignLevel": null
+            }
+          },
+          {
+            "collapsed": true,
+            "datasource": null,
+            "gridPos": {
+              "h": 1,
+              "w": 24,
+              "x": 0,
+              "y": 30
+            },
+            "id": 24,
+            "panels": [
+              {
+                "aliasColors": {},
+                "bars": false,
+                "dashLength": 10,
+                "dashes": false,
+                "datasource": null,
+                "description": "",
+                "fieldConfig": {
+                  "defaults": {
+                    "custom": {},
+                    "links": []
+                  },
+                  "overrides": []
+                },
+                "fill": 1,
+                "fillGradient": 0,
+                "gridPos": {
+                  "h": 9,
+                  "w": 24,
+                  "x": 0,
+                  "y": 38
+                },
+                "hiddenSeries": false,
+                "id": 25,
+                "legend": {
+                  "alignAsTable": true,
+                  "avg": true,
+                  "current": false,
+                  "max": true,
+                  "min": true,
+                  "rightSide": true,
+                  "show": true,
+                  "total": false,
+                  "values": true
+                },
+                "lines": true,
+                "linewidth": 1,
+                "links": [],
+                "nullPointMode": "null",
+                "options": {
+                  "alertThreshold": true
+                },
+                "paceLength": 10,
+                "percentage": false,
+                "pluginVersion": "7.4.3",
+                "pointradius": 2,
+                "points": false,
+                "renderer": "flot",
+                "seriesOverrides": [],
+                "spaceLength": 10,
+                "stack": false,
+                "steppedLine": false,
+                "targets": [
+                  {
+                    "expr": "sum(\n  rate(\n    nginx_ingress_controller_requests{status!~\"[4-5].*\", controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[${__range_s}s]\n      )\n   ) by (ingress)\n/ \n(\n  sum(\n    rate(\n      nginx_ingress_controller_requests{ controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[${__range_s}s]\n        )\n     ) by (ingress)\n     - \n  (\n  sum(\n    rate(\n      nginx_ingress_controller_requests{status=~\"404|499\", controller_class=~\"$controller_class\", ingress=~\"$ingress\",namespace=~\"$namespace\", controller_pod=~\"$pod\"}[${__range_s}s]\n        )\n     ) by (ingress)\n  or vector(0)\n  )\n)",
+                    "format": "time_series",
+                    "interval": "",
+                    "intervalFactor": 1,
+                    "legendFormat": "{{ingress}}",
+                    "refId": "A"
+                  }
+                ],
+                "thresholds": [],
+                "timeFrom": null,
+                "timeRegions": [],
+                "timeShift": null,
+                "title": "Percentage of Success (non-2xx) - By Ingress",
+                "tooltip": {
+                  "shared": true,
+                  "sort": 0,
+                  "value_type": "individual"
+                },
+                "type": "graph",
+                "xaxis": {
+                  "buckets": null,
+                  "mode": "time",
+                  "name": null,
+                  "show": true,
+                  "values": []
+                },
+                "yaxes": [
+                  {
+                    "$$hashKey": "object:108",
+                    "decimals": null,
+                    "format": "percentunit",
+                    "label": null,
+                    "logBase": 1,
+                    "max": "1",
+                    "min": "0",
+                    "show": true
+                  },
+                  {
+                    "$$hashKey": "object:109",
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": false
+                  }
+                ],
+                "yaxis": {
+                  "align": false,
+                  "alignLevel": null
+                }
+              },
+              {
+                "aliasColors": {},
+                "bars": false,
+                "dashLength": 10,
+                "dashes": false,
+                "datasource": null,
+                "fieldConfig": {
+                  "defaults": {
+                    "custom": {},
+                    "links": []
+                  },
+                  "overrides": []
+                },
+                "fill": 1,
+                "fillGradient": 0,
+                "gridPos": {
+                  "h": 13,
+                  "w": 24,
+                  "x": 0,
+                  "y": 47
+                },
+                "hiddenSeries": false,
+                "id": 16,
+                "legend": {
+                  "alignAsTable": true,
+                  "avg": true,
+                  "current": false,
+                  "max": true,
+                  "min": true,
+                  "rightSide": false,
+                  "show": true,
+                  "sort": "avg",
+                  "sortDesc": false,
+                  "total": false,
+                  "values": true
+                },
+                "lines": true,
+                "linewidth": 1,
+                "links": [],
+                "nullPointMode": "null",
+                "options": {
+                  "alertThreshold": true
+                },
+                "percentage": false,
+                "pluginVersion": "7.4.3",
+                "pointradius": 2,
+                "points": false,
+                "renderer": "flot",
+                "seriesOverrides": [],
+                "spaceLength": 10,
+                "stack": false,
+                "steppedLine": false,
+                "targets": [
+                  {
+                    "expr": "histogram_quantile(0.99, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{status!=\"404\",status!=\"500\", controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[5m])) by (le, ingress))",
+                    "format": "time_series",
+                    "intervalFactor": 1,
+                    "legendFormat": "p99 {{ ingress }}",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "histogram_quantile(0.95, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{status!=\"404\",status!=\"500\", controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[5m])) by (le, ingress))",
+                    "format": "time_series",
+                    "intervalFactor": 1,
+                    "legendFormat": "p95 {{ ingress }}",
+                    "refId": "B"
+                  },
+                  {
+                    "expr": "histogram_quantile(0.90, sum(rate(nginx_ingress_controller_request_duration_seconds_bucket{status!=\"404\",status!=\"500\", controller_class=~\"$controller_class\", ingress=~\"$ingress\", namespace=~\"$namespace\", controller_pod=~\"$pod\"}[5m])) by (le, ingress))",
+                    "format": "time_series",
+                    "intervalFactor": 1,
+                    "legendFormat": "p90 {{ ingress }}",
+                    "refId": "C"
+                  }
+                ],
+                "thresholds": [],
+                "timeFrom": null,
+                "timeRegions": [],
+                "timeShift": null,
+                "title": "Latency (per ingress)",
+                "tooltip": {
+                  "shared": true,
+                  "sort": 0,
+                  "value_type": "individual"
+                },
+                "type": "graph",
+                "xaxis": {
+                  "buckets": null,
+                  "mode": "time",
+                  "name": null,
+                  "show": true,
+                  "values": []
+                },
+                "yaxes": [
+                  {
+                    "format": "s",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": true
+                  },
+                  {
+                    "format": "short",
+                    "label": null,
+                    "logBase": 1,
+                    "max": null,
+                    "min": null,
+                    "show": false
+                  }
+                ],
+                "yaxis": {
+                  "align": false,
+                  "alignLevel": null
+                }
+              }
+            ],
+            "title": "CPU Intensive / Optional Graphs",
+            "type": "row"
+          }
+        ],
+        "refresh": "1m",
+        "schemaVersion": 27,
+        "style": "dark",
+        "tags": [
+          "ingress",
+          "nginx",
+          "networking",
+          "services",
+          "k8s"
+        ],
+        "templating": {
+          "list": [
+            {
+              "allValue": ".*",
+              "current": {
+                "selected": true,
+                "text": [
+                  "All"
+                ],
+                "value": [
+                  "$__all"
+                ]
+              },
+              "datasource": "",
+              "definition": "label_values(nginx_ingress_controller_config_hash, controller_class) ",
+              "description": null,
+              "error": null,
+              "hide": 0,
+              "includeAll": true,
+              "label": "Controller Class",
+              "multi": true,
+              "name": "controller_class",
+              "options": [],
+              "query": {
+                "query": "label_values(nginx_ingress_controller_config_hash, controller_class) ",
+                "refId": "prometheus-controller_class-Variable-Query"
+              },
+              "refresh": 1,
+              "regex": "",
+              "skipUrlSync": false,
+              "sort": 1,
+              "tagValuesQuery": "",
+              "tags": [],
+              "tagsQuery": "",
+              "type": "query",
+              "useTags": false
+            },
+            {
+              "allValue": ".*",
+              "current": {
+                "selected": true,
+                "tags": [],
+                "text": [
+                  "All"
+                ],
+                "value": [
+                  "$__all"
+                ]
+              },
+              "datasource": "",
+              "definition": "label_values(nginx_ingress_controller_requests{ controller_class=~\"$controller_class\"},namespace)",
+              "description": null,
+              "error": null,
+              "hide": 0,
+              "includeAll": true,
+              "label": "Namespace",
+              "multi": true,
+              "name": "namespace",
+              "options": [],
+              "query": {
+                "query": "label_values(nginx_ingress_controller_requests{ controller_class=~\"$controller_class\"},namespace)",
+                "refId": "prometheus-namespace-Variable-Query"
+              },
+              "refresh": 1,
+              "regex": "",
+              "skipUrlSync": false,
+              "sort": 1,
+              "tagValuesQuery": "",
+              "tags": [],
+              "tagsQuery": "",
+              "type": "query",
+              "useTags": false
+            },
+            {
+              "allValue": null,
+              "current": {
+                "selected": true,
+                "text": [
+                  "All"
+                ],
+                "value": [
+                  "$__all"
+                ]
+              },
+              "datasource": "",
+              "definition": "label_values(nginx_ingress_controller_requests{namespace=~\"$namespace\",controller_class=~\"$controller_class\"}, ingress) ",
+              "description": null,
+              "error": null,
+              "hide": 0,
+              "includeAll": true,
+              "label": "Ingress",
+              "multi": true,
+              "name": "ingress",
+              "options": [],
+              "query": {
+                "query": "label_values(nginx_ingress_controller_requests{namespace=~\"$namespace\",controller_class=~\"$controller_class\"}, ingress) ",
+                "refId": "prometheus-ingress-Variable-Query"
+              },
+              "refresh": 2,
+              "regex": "",
+              "skipUrlSync": false,
+              "sort": 1,
+              "tagValuesQuery": "",
+              "tags": [],
+              "tagsQuery": "",
+              "type": "query",
+              "useTags": false
+            },
+            {
+              "allValue": ".*",
+              "current": {
+                "selected": true,
+                "text": [
+                  "All"
+                ],
+                "value": [
+                  "$__all"
+                ]
+              },
+              "datasource": "",
+              "definition": "label_values(nginx_ingress_controller_config_hash{controller_class=~\"$controller_class\"}, controller_pod) ",
+              "description": null,
+              "error": null,
+              "hide": 0,
+              "includeAll": true,
+              "label": "Ingress Pod",
+              "multi": true,
+              "name": "pod",
+              "options": [],
+              "query": {
+                "query": "label_values(nginx_ingress_controller_config_hash{controller_class=~\"$controller_class\"}, controller_pod) ",
+                "refId": "StandardVariableQuery"
+              },
+              "refresh": 1,
+              "regex": "",
+              "skipUrlSync": false,
+              "sort": 1,
+              "tagValuesQuery": "",
+              "tags": [],
+              "tagsQuery": "",
+              "type": "query",
+              "useTags": false
+            }
+          ]
+        },
+        "time": {
+          "from": "now-3h",
+          "to": "now"
+        },
+        "timepicker": {
+          "refresh_intervals": [
+            "10s",
+            "30s",
+            "1m",
+            "5m",
+            "15m",
+            "30m",
+            "1h",
+            "2h",
+            "1d"
+          ],
+          "time_options": [
+            "5m",
+            "15m",
+            "1h",
+            "6h",
+            "12h",
+            "24h",
+            "2d",
+            "7d",
+            "30d"
+          ]
+        },
+        "timezone": "",
+        "title": "Kubernetes Nginx Ingress Prometheus NextGen",
+        "description": "Nginx Ingress Controller via Prometheus Metrics Dashboard created for DevOps Nirvana @ https://github.com/DevOps-Nirvana",
+        "uid": "k8s-nginx-ingress-prometheus-ng",
+        "version": 27
+    }
+kind: ConfigMap
+metadata:
+  labels:
+    grafana_dashboard: "1"
+  namespace: ingress-nginx
+  name: ingress-nginx-dashboard-14314
+```
+
+</details>
+
+
+### Apply 
+
+```bash
+kubectl apply -f 15_platform/files/
+```
+
+### Verify 15_Platform Layer
+- [X] Cert-Manager is able to serve challenges.
+```bash title="Watch the certificates being issued"
+kubectl get certificates -A -w
+kubectl get challenges -A -w
+```
+- [X] (***Important***) Cert Manager is able to create TXT records in Route53.
+- [X] External Access through:
+  - grafana.k8s.sreboy.com
+  - prometheus.k8s.sreboy.com
+  - goviolin.k8s.sreboy.com
+- [X] Verify Default Prometheus Targets are created.
+- [X] Verify Default Grafana Dashboards are created.
+- [X] Verify Cert Manager, Ingress `Targets` and `Custom Dashboards` are created.
 
 ## REFERENCES
 - [Faster Multi-Platform Builds: Dockerfile Cross-Compilation Guide](https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/)
