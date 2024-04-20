@@ -1,8 +1,9 @@
 ---
-slug: eks-with-terraform-cert-manager-ingress-oidc-provider
+slug: terraformed-odyssey-from-code-to-day-two-operation-and-beyond
 title: "Terraformed Odyssey: From Code to Day Two Operation & Beyond"
 authors: [ziadh]
 tags: [kubernetes, eks, terraform, cert-manager, ingress]
+hide_table_of_contents: false
 ---
 
 ```mdx-code-block
@@ -971,7 +972,7 @@ helm install cert-manager jetstack/cert-manager \
 helm uninstall cert-manager -n cert-manager
 ```
 
-#### Steps Needed
+### Draft Plan
 The following is just us drafting the plan we will use Terraform not the UI. Do not worry if you did not understand a certain part we are just drafting plan. We will go into details.
 
 1. Delegate a subdomain to Route53. `*.k8s.sreboy.com`.
@@ -1074,7 +1075,8 @@ The following is just us drafting the plan we will use Terraform not the UI. Do 
 4. Install `Ingress-Nginx` with custom `values.yaml` file.
 5. Install `Cert-Manager` with custom `values.yaml` file.
 
-### Simplified Dependency Graph
+### Visualize Plan
+The following is a ***Simplified Dependency Graph*** made by [Mermaid](https://mermaid.js.org/).
 
 ```mermaid
 graph TD
@@ -1102,9 +1104,21 @@ graph TD
   end
 ```
 
+### AWS Caller Identity
+
+Use this data source to get the access to the effective Account ID, User ID, and ARN in which Terraform is authorized.
+
+- [aws_caller_identity](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity)
+
+```hcl title="main.tf"
+data "aws_caller_identity" "current" {}
+```
+
+### 
 
 ## REFERENCES
 - [Faster Multi-Platform Builds: Dockerfile Cross-Compilation Guide](https://www.docker.com/blog/faster-multi-platform-builds-dockerfile-cross-compilation-guide/)
-- [containerd image store](https://docs.docker.com/desktop/containerd/)
+- [Containerd image store](https://docs.docker.com/desktop/containerd/)
 - [Install or update to the latest version of the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
 - [Amazon EKS VPC and subnet requirements and considerations](https://docs.aws.amazon.com/eks/latest/userguide/network_reqs.html)
+- [Mermaid Diagramming and charting tool](https://mermaid.js.org/)
