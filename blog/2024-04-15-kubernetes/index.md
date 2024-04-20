@@ -221,10 +221,10 @@ jobs:
   - Deploy GoViolin App.
   - Deploy Voting App.
 
-### Pre-requisites
+## Pre-requisites
 First make sure you downloaded `aws-cli` and created `terraform` user with ***programmatic access*** from the AWS Console.
 
-#### Install AWS CLI
+### Install AWS CLI
 Follow the following link to download the latest aws-cli version compatible with your operating system:
 - [Install or update to the latest version of the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
 
@@ -237,7 +237,7 @@ aws-cli/2.15.38 Python/3.11.8 Darwin/23.4.0 exe/x86_64 prompt/off
 The AWS CLI `version 2` is the most recent major version of the AWS CLI and supports all of the latest features. Some features introduced in version 2 are *NOT* backported to version 1 and you must upgrade to access those features.
 :::
 
-#### Create Terraform User
+### Create Terraform User
 1. Open AWS Console then navigate to `IAM` Service.
 2. Click on `Users` then `Create User`.
 3. Name user `terraform`.
@@ -268,7 +268,7 @@ cat ~/.aws/config
 cat ~/.aws/credentials
 ```
 
-### 00_Foundation
+## 00_Foundation
 In this section we will provision the `VPC`, `Internet GW`, `Subnets`, `Elastic IPs`, `NAT Gateway`, `Route Tables`, `EKS Cluster`, `EKS Node Groups`, and `IAM` roles and policies needed.
 
 We will be using the following Terraform providers:
@@ -312,10 +312,12 @@ provider "aws" {
 
 ```
 
-### 00_Foundation main.tf
+### Disclaimer
 Because the `main.tf` file is a bit lengthy, I will break it here to be easier for me to comment and provide addition resources for every related resources.
 
-#### Local variable
+> A better approach would have been grouping related resources in different `.tf` files. But for the sake of simplicity I didn't do it.
+
+### Local variable
 ```hcl title="main.tf"
 locals {
   cluster_name = "eks-cluster-production"
@@ -326,7 +328,7 @@ locals {
 }
 ```
 
-#### Craete VPC
+### Craete VPC
 
 You can see more at:
 - [aws_vpc](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/vpc) terraform Resource.
@@ -362,10 +364,10 @@ resource "aws_vpc" "main" {
 }
 ```
 
-#### Create Internet Gateway
+### Create Internet Gateway
 - [aws_internet_gateway](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/internet_gateway) terraform Resource.
 
-```hcl title="main.tf"
+```hcl title="main.tf" 
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
@@ -373,7 +375,7 @@ resource "aws_internet_gateway" "main" {
 }
 ```
 
-#### Subnets
+### Subnets
 We need two public and two private subnets. Read more [here](https://aws.github.io/aws-eks-best-practices/networking/subnets/#:~:text=When%20both%20the%20public%20and%20private%20endpoints%20are%20enabled%2C%20Kubernetes%20API%20requests%20from%20within%20the%20VPC%20communicate%20to%20the%20control%20plane%20via%20the%20X%2DENIs%20within%20your%20VPC.%20Your%20cluster%20API%20server%20is%20accessible%20from%20the%20internet.).
 
 - [aws_subnet](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet) terraform Resource.
@@ -383,7 +385,7 @@ We need two public and two private subnets. Read more [here](https://aws.github.
 
 <TabItem value="Public Subnet 1">
 
-```hcl title="main.tf"
+```hcl title="main.tf" {9,15,16}
 resource "aws_subnet" "public_1" {
   vpc_id = aws_vpc.main.id
 
@@ -409,7 +411,7 @@ resource "aws_subnet" "public_1" {
 
 <TabItem value="Public Subnet 2">
 
-```hcl title="main.tf"
+```hcl title="main.tf" {9,15,16}
 resource "aws_subnet" "public_2" {
   vpc_id = aws_vpc.main.id
 
@@ -435,7 +437,7 @@ resource "aws_subnet" "public_2" {
 
 <TabItem value="Private Subnet 1">
 
-```hcl title="main.tf"
+```hcl title="main.tf" {11,12}
 resource "aws_subnet" "private_1" {
   vpc_id = aws_vpc.main.id
 
@@ -457,7 +459,7 @@ resource "aws_subnet" "private_1" {
 
 <TabItem value="Private Subnet 2">
 
-```hcl title="main.tf"
+```hcl title="main.tf" {11,12}
 resource "aws_subnet" "private_2" {
   vpc_id = aws_vpc.main.id
 
@@ -481,12 +483,12 @@ resource "aws_subnet" "private_2" {
 
 :::note
 Pay a close attention to:
-- The `"kubernetes.io/role/elb"` tag we had on public subnets vs `"kubernetes.io/role/internal-elb"`.
+- The `"kubernetes.io/role/elb"` tag we had on public subnets vs `"kubernetes.io/role/internal-elb"`. Read more on the docs [here](https://docs.aws.amazon.com/eks/latest/userguide/network_reqs.html#:~:text=If%20you%20want%20to%20deploy%20load%20balancers%20to%20a%20subnet%2C%20the%20subnet%20must%20have%20the%20following%20tag%3A).
 - The `map_public_ip_on_launch = true` on public subnets ONLY.
 - Without this tag `"kubernetes.io/cluster/${local.cluster_name}"` the EKS cluster will not be able to communicate with the nodes.
 :::
 
-#### Elastic IPs and NAT Gw
+### Elastic IPs and NAT GWs
 
 - [aws_eip](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eip) terraform Resource.
 - [aws_nat_gateway](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/nat_gateway) terraform Resource.
@@ -529,8 +531,8 @@ resource "aws_nat_gateway" "gw_2" {
 
 </Tabs>
 
-#### Route Tables and Route Tables Association
-
+### RT and RTA
+Route Tables and Route Tables Association section:
 - [aws_route_table](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table) terraform Resource.
 - [aws_route_table_association](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route_table_association) terraform Resource.
 
@@ -540,7 +542,7 @@ We will have three route tables and then associate each one of the four subnets 
 
 <TabItem value="Public Route Table">
 
-```hcl title="main.tf"
+```hcl title="main.tf" {6}
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -557,7 +559,7 @@ resource "aws_route_table" "public" {
 
 <TabItem value="Private Route Table One">
 
-```hcl title="main.tf"
+```hcl title="main.tf" {6}
 resource "aws_route_table" "private_1" {
   vpc_id = aws_vpc.main.id
 
@@ -574,7 +576,7 @@ resource "aws_route_table" "private_1" {
 
 <TabItem value="Private Route Table Two">
 
-```hcl title="main.tf"
+```hcl title="main.tf" {6}
 resource "aws_route_table" "private_2" {
   vpc_id = aws_vpc.main.id
 
@@ -593,7 +595,7 @@ resource "aws_route_table" "private_2" {
 
 And there respective associations:
 
-```hcl title="main.tf"
+```hcl title="main.tf" {3,8}
 resource "aws_route_table_association" "public_1" {
   subnet_id      = aws_subnet.public_1.id
   route_table_id = aws_route_table.public.id
@@ -615,12 +617,12 @@ resource "aws_route_table_association" "private_2" {
 }
 ```
 
-#### IAM roles for EKS Cluster
+### IAM roles for EKS
 
 - [aws_iam_role](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role) terraform Resource.
 - [aws_iam_role_policy_attachment](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/iam_role_policy_attachment) terraform Resource.
 
-Note that we will attach the role to the [AmazonEKSClusterPolicy](https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEKSClusterPolicy) policy, it managed by aws. And the assume_role_policy is the one responsible on who can assume this role.
+Note that we will attach the role to the [AmazonEKSClusterPolicy](https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEKSClusterPolicy) policy, it is managed by aws. And the ***assume_role_policy*** is responsible on who can assume this role.
 
 This role is used by the EKS control plane to make calls to AWS API operations on your behalf.
 
@@ -650,11 +652,11 @@ resource "aws_iam_role_policy_attachment" "amazon_eks_cluster_policy" {
 }
 ```
 
-#### EKS Cluster
+### EKS Cluster
 
 - [aws_eks_cluster](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster) terraform Resource.
 
-```hcl title="main.tf"
+```hcl title="main.tf" {10}
 resource "aws_eks_cluster" "eks" {
   name = local.cluster_name
 
@@ -688,7 +690,7 @@ resource "aws_eks_cluster" "eks" {
 }
 ```
 
-#### IAM roles for EKS Node Groups
+### IAM roles for NodeGroups
 
 We will create a role named `eks-node-group-general` and then attach three policies to that role:
 - [AmazonEKSWorkerNodePolicy](https://github.com/SummitRoute/aws_managed_policies/blob/master/policies/AmazonEKSWorkerNodePolicy).
@@ -757,16 +759,20 @@ resource "aws_iam_role_policy_attachment" "amazon_ec2_container_registry_read_on
 
 </Tabs>
 
+### EKS NodeGroup
+
+- [aws_eks_node_group](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_node_group) terraform Resource.
+
 ```hcl title="main.tf"
-# Resource: aws_eks_node_group
-# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_node_group
 resource "aws_eks_node_group" "nodes_general" {
   cluster_name    = aws_eks_cluster.eks.name
   node_group_name = "nodes-general-group"
   node_role_arn   = aws_iam_role.node_group_general.arn
 
   # Identifiers of EC2 subnets to associate with the EKS Node Group.
+  # This will error
   # These subnets must have the following resource tags:
+  # This will error
   # - kubernetes.io/cluster/CLUSTER_NAME
   # Where CLUSTER_NAME is replaced with the name of the EKS cluster.
   subnet_ids = [
@@ -775,9 +781,9 @@ resource "aws_eks_node_group" "nodes_general" {
   ]
 
   scaling_config {
-    desired_size = 1
-    max_size     = 1
-    min_size     = 1
+    desired_size = 2
+    max_size     = 2
+    min_size     = 2
   }
 
   # Valid Values: AL2_x86_64, BOTTLEROCKET_x86_64
@@ -801,7 +807,7 @@ resource "aws_eks_node_group" "nodes_general" {
   }
 
   # If not specified, then inherited from the EKS master plane.
-  version = "1.29"
+  version = "1.28"
 
   depends_on = [
     aws_iam_role_policy_attachment.amazon_eks_worker_node_policy_general,
@@ -811,29 +817,43 @@ resource "aws_eks_node_group" "nodes_general" {
 
   tags = local.tags
 }
-
 ```
 
-### Test
+:::warning
+```hcl {2-4}
+scaling_config {
+  desired_size = 2
+  max_size     = 2
+  min_size     = 2
+}
+```
+
+We can not have less than 2 worker nodes in the EKS cluster. As we will add a `PodAntiAffinity` rule to the ingress-nginx controller. More later on this.
+:::
+
+### Test Foundation Layer
 ```bash
 terraform fmt
 terraform init
 terraform validate
 terraform plan
 terraform apply
+```
 
-rm ~/.kube/config
-
+```bash
+rm ~/.kube/config # (Optional)
 aws eks --region eu-central-1 update-kubeconfig --name eks-cluster-production --profile terraform
-
 kubectl get nodes,svc
 ```
 
-### 10_Platform
+## 10_Platform
 In this section we will provision:
 - Kube-Prometheus-Stack.
 - Ingress-Nginx.
 - Cert-Manager.
+- Route53 with `*.k8s.sreboy.com` subdomain.
+
+### Vars
 
 ```hcl title="variables.tf"
 variable "region" {
@@ -855,6 +875,8 @@ variable "cluster_name" {
 }
 
 ```
+
+### Providers
 
 ```hcl title="providers.tf"
 terraform {
@@ -903,9 +925,10 @@ provider "helm" {
 
 ```
 
+### Install with Helm
+We will use terraform but I wanted to show you how to install them with helm.
 
-```bash
-# ----> [1]: Kube Prometheus Stack
+```bash title="Kube Prometheus Stack"
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 helm search repo kube-prometheus-stack --max-col-width 23
@@ -916,9 +939,11 @@ helm install monitoring prometheus-community/kube-prometheus-stack \
 --version 58.1.3 \
 --namespace monitoring \
 --create-namespace
+# Later when you are done
+helm uninstall monitoring -n monitoring
+```
 
-
-# ----> [2]: Ingress-Nginx
+```bash title="Ingress-Nginx"
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
 helm search repo ingress-nginx --max-col-width 23
@@ -927,9 +952,13 @@ helm install ingress-nginx ingress-nginx/ingress-nginx \
 --version 4.10.0 \
 --namespace ingress-nginx \
 --create-namespace
+# Later when you are done
+helm uninstall ingress-nginx -n ingress-nginx
+```
 
 
-# ----> [3]: Cert-Manager
+
+```bash title="Cert-Manager"
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
 helm search repo cert-manager --max-col-width 23
@@ -938,17 +967,18 @@ helm install cert-manager jetstack/cert-manager \
 --version 1.14.4 \
 --namespace cert-manager \
 --create-namespace
+# Later when you are done
+helm uninstall cert-manager -n cert-manager
 ```
 
+#### Steps Needed
+The following is just us drafting the plan we will use Terraform not the UI. Do not worry if you did not understand a certain part we are just drafting plan. We will go into details.
 
-#### Temp Steps:
-1. Delegate a subdomain to Route53. `*.monitoring.devopsbyexample.io`.
+1. Delegate a subdomain to Route53. `*.k8s.sreboy.com`.
   1. Create a public hosted zone in Route53.
-    - Domain Name: `monitoring.devopsbyexample.io`.
-    - Type: `Public Hosted Zone`.
-    - Click `Create`.
-  2. Create an NS record in Namecheap.
-  3. Test a subdomain `test.monitoring.devopsbyexample.io` in Route53 and try to resolve it with `dig +short test.monitoring.devopsbyexample.io`. Value could be: `10.10.10.10`.
+    - Domain Name: `k8s.sreboy.com`.
+  2. Create a `nameserver - NS` record in Namecheap.
+  3. (Optional) Test subdomain delegation with a dummy `test.k8s.sreboy.com` in Route53 and try to resolve it with `dig +short test.k8s.sreboy.com`. Value can be anything: `10.10.10.10`. You can also use this tool to see DNS propagation [whatsmydns](https://www.whatsmydns.net/).
 2. We will use IRSA: ***IAM Roles for Service Accounts*** to allow the `cert-manager` to manage the `Route53` hosted zone. 
   1. Create OpenID Connect Provider first:
     - Open eks service in AWS Console. Then under clusters select the cluster.
@@ -978,7 +1008,7 @@ helm install cert-manager jetstack/cert-manager \
     ]
   }
   ```
-  3. Craete an IAM role and associate it with the kubernetes service account. Under `Roles` click `Create role`.
+  3. Craete an IAM role and ***associate it with the kubernetes service account***. Under `Roles` click `Create role`.
     - Select type of trusted entity to be `Web identity`.
     - Choose the identity provider created in step 1.
     - For Audience: `sts.amazonaws.com`.
@@ -1028,7 +1058,7 @@ helm install cert-manager jetstack/cert-manager \
           "Action": "sts:AssumeRoleWithWebIdentity",
           "Condition": {
             "StringEquals": {
-              "oidc.eks.eu-central-1.amazonaws.com/id/<CLUSTER_ID>:sub": "system:serviceaccount:cert-manager:cert-083-cert-manager"
+              "oidc.eks.eu-central-1.amazonaws.com/id/<CLUSTER_ID>:sub": "system:serviceaccount:cert-manager:cert-manager"
             }
           }
         }
@@ -1039,7 +1069,45 @@ helm install cert-manager jetstack/cert-manager \
     </TabItem>
 
     </Tabs>
-    
+  5. Attach policy `CertManagerRoute53Access` to the role `cert-manager-acme`. Remember the ***assume_role_policy*** created inside the role defines who can assume this role.
+3. Install `Kube Prometheus Stack` with custom `values.yaml` file.
+4. Install `Ingress-Nginx` with custom `values.yaml` file.
+5. Install `Cert-Manager` with custom `values.yaml` file.
+
+#### Simplified Dependency Graph
+```md
+kube_prometheus_stack_helm -> 
+
+ingress_nginx_namespace -> 
+
+cert_manager_namespace ->
+
+k8s_public_zone:
+- wildcard_cname
+- cert_manager_route53_access_policy
+
+eks_oidc ->
+
+cert_manager_acme_role ->
+
+(kube_prometheus_stack_helm) && (ingress_nginx_namespace):
+- ingress-nginx_helm -> external_nginx_controller_svc -> wildcard_cname
+
+(cert_manager_acme_role && cert_manager_acme_role_policy) -> aws_iam_role_policy_attachment
+
+(kube_prometheus_stack_helm) && (cert_manager_namespace) && (aws_iam_role_policy_attachment):
+- cert-manager_helm
+```
+
+```mermaid
+graph TD;
+    A-->B;
+    A-->C;
+    B-->D;
+    C-->D;
+```
+
+
 
 
 ## REFERENCES

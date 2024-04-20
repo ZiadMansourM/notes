@@ -214,6 +214,7 @@ prometheus:
   enabled: true
   servicemonitor:
     enabled: true
+    # Incase we had more than one prometheus instance
     # prometheusInstance: monitor
 
 
