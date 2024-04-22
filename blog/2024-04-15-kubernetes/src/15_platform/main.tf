@@ -12,14 +12,18 @@ data "aws_route53_zone" "k8s" {
   name = "k8s.sreboy.com."
 }
 
-resource "kubernetes_manifest" "cluster_deployment" {
-  manifest = file("files/deployment.yaml")
-}
+resource "helm_release" "test_eks_chart" {
+  # Local chart ./files/test-eks-chart
+  repository = "./files/test-eks-chart"
+  chart      = "test-eks-chart"
+  name       = "test-eks-chart"
+  namespace  = "default"
+  atomic = true
 
-resource "kubernetes_manifest" "ingress-nginx-dashboard-14314" {
-  manifest = file("files/dashboards/ingress-nginx-dashboard-14314.yaml")
-}
-
-resource "kubernetes_manifest" "cert-manager-dashboard-20842" {
-  manifest = file("files/dashboards/cert-manager-dashboard-20842.yaml")
+  values = [
+    <<YAML
+region: ${var.region}
+hostedZoneID: ${data.aws_route53_zone.k8s.zone_id}
+    YAML
+  ]
 }
