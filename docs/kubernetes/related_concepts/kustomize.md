@@ -627,11 +627,398 @@ patches:
 </Tabs>
 
 
+### Replace List
+
+<Tabs>
+
+<TabItem value="Json 6902">
+
+```yaml title="k8s/kustomization.yaml"
+patches:
+- target:
+    kind: Deployment
+    name: api-deployment
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0
+      value:
+        name: haproxy
+        image: haproxy
+```
+
+</TabItem>
+
+<TabItem value="Strategic Merge Patch">
+
+```yaml title="k8s/kustomization.yaml"
+patches:
+- patch: |-
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: api-deployment
+    spec:
+      template:
+        spec:
+          containers:
+          - name: nginx
+            image: haproxy
+```
+
+</TabItem>
+
+</Tabs>
+
+## Overlays
+```bash
+tree k8s
+k8s
+├── base
+│   ├── kustomization.yaml
+│   ├── nginx-deploy.yaml
+│   ├── redis-depl.yaml
+│   └── service.yaml
+└── overlays
+    ├── dev
+    │   ├── config-map.yaml
+    │   └── kustomization.yaml
+    ├── prod
+    │   ├── config-map.yaml
+    │   ├── grafana-depl.yaml
+    │   └── kustomization.yaml
+    └── stg
+        ├── config-map.yaml
+        └── kustomization.yaml
+
+5 directories, 11 files
+```
+
+```yaml title="k8s/base/nginx-deploy.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 1
+```
+
+We want to change `replicas` per environment basis:
+
+```yaml title="k8s/base/kustomization.yaml"
+resources:
+- nginx-deploy.yaml
+- redis-depl.yaml
+- service.yaml
+```
+
+```yaml title="k8s/overlays/dev/kustomization.yaml"
+bases:
+- ../../base
+
+patches:
+- target:
+    kind: Deployment
+    name: nginx-deployment
+  patch: |-
+    - op: replace
+      path: /spec/replicas
+      value: 2
+```
+
+```yaml title="k8s/overlays/prod/kustomization.yaml"
+bases:
+- ../../base
+
+resources:
+- grafana-depl.yaml
+
+patches:
+- patch: |-
+    - op: replace
+      path: /spec/replicas
+      value: 3
+```
+
+### Directory Structure
+![Kustomize Overlays](./assets/kustomize/imgs/kustomize-overlays-structure.png)
 
 
+## Components
+Components provides the ability to define reusable pieces of configuration logic(resources + patches) that can be included in multiple overlays.
+
+Components are useful in situations where applications support multiple optional features that need to be enabled only in a subset of overlays.
+
+![Kustomize Components](./assets/kustomize/imgs/kustomize-components.png)
+
+### Example
+
+![Kustomize Components Example](./assets/kustomize/imgs/kustomize-components-example.png)
+
+```yaml title="k8s/components/db/postgres-depl.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: postgres
+  template:
+    metadata:
+      labels:
+        component: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres
+```
+
+```yaml title="k8s/components/db/kustomization.yaml"
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Component # Important
+
+resources:
+- postgres-depl.yaml
+
+secretGenerator:
+- name: postgres-cred
+  literals:
+  - password=postgres123
+
+patches:
+- deployment-patch.yaml
+```
+
+```yaml title="k8s/components/db/deployment-patch.yaml"
+# A Strategic Merge Patch
+# Targeting the `api-depl` in the `k8s/base` directory
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-deployment
+spec:
+  template:
+    spec:
+      containers:
+      - name: api
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-cred
+              key: password
+```
+
+```yaml title="k8s/overlays/dev/kustomization.yaml"
+bases:
+- ../../base
+
+components:
+- ../../components/db
+```
+
+## Generators
+***What problem does `secretGenerator` and `configMapGenerator` solve?*** In this example we have:
+- `k8s/api-depl.yaml`
+- `k8s/db-configMap.yaml`
+
+```yaml title="k8s/db-configMap.yaml"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-credentials
+data:
+  # You want to do that inside a secret actually
+  # Anything we do in this demo also applies to
+  # secrets
+  password: "password1"
+```
+
+```yaml title="k8s/api-depl.yaml"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      component: nginx
+  template:
+    metadata:
+      labels:
+        component: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: db-credentials
+              key: password
+```
+
+```bash
+kubectl exec nginx-deployment-xxxx -- env | grep DB_PASSWORD
+kubectl exec nginx-deployment-xxxx -- printenv | grep -i db
+```
+
+A couple of month later we wanted to change the password of our database.. We have to tell kubernetes we updated this. You will change the `db-configMap.yaml` file and then apply it. But the `nginx-deployment` is ***unchanged***.
+
+```bash
+kubectl rollout restart deployment nginx-deployment
+```
+
+### Secret / Config Generator
+When you define a generator in kustomize. It is going to create a `ConfigMap` or `Secret` resource for you. But it appends a `hash` to the name of the resource. e.g. `db-credentials-xxxxx`. When you create a `deployment.yaml` file you just reference the `db-credentials` and kustomize will automatically update the `deployment.yaml` file with the new name of the `ConfigMap` or `Secret`. 
+
+Overtime we wanted to update the password of the database. Our generator will create a new `ConfigMap` or `Secret` with a new name. And then update the `deployment.yaml` file with the new name of the `ConfigMap` or `Secret`. That will trigger a rollout of the deployment ^^.
+
+### Configure generators
+```yaml title="kustomization.yaml"
+configMapGenerator:
+- name: db-credentials
+  literals:
+  - password=password1
+```
+
+Result:
+
+```yaml title="configMap.yaml"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-credentials-xxxxx
+data:
+  password: password1
+```
+
+### File Generators
+
+```yaml title="kustomization.yaml"
+configMapGenerator:
+- name: nginx-config
+  files:
+  - nginx.conf
+
+configMapGenerator:
+- name: ingress-nginx-14314
+  files:
+  - ingress-nginx-14314.json
+  options:
+    disableNameSuffixHash: true
+    labels:
+      grafana_dashboard: "1"
+```
+
+```yaml title="Nginx.conf"
+server {
+  listen 80;
+  server_name example.com;
+  location / {
+    proxy_pass http://localhost:3000;
+  }
+}
+```
+
+Result:
+
+```yaml title="configMap.yaml"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config-xxxxx
+data:
+  nginx.conf: |
+    server {
+      listen 80;
+      server_name example.com;
+      location / {
+        proxy_pass http://localhost:3000;
+      }
+    }
+```
+
+### Secret Generators
+```yaml title="kustomization.yaml"
+secretGenerator:
+- name: db-cred
+  literals:
+  - password=password1
+```
+
+Result:
+
+```yaml title="secret.yaml"
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+  name: db-cred-xxxx
+data:
+  password: cGFzc3dvcmQx
+```
+
+## Garbage Collection
+Setup kubernetes to automatically clean `stale configs`. 
+
+```bash title="First Way"
+kubectl apply -k k8s/overlays/prod --prune -l app-config=my-config
+```
+
+## Imperative Commands
+kustomize provides the ability to imperatively update the `kustomization.yaml` files using `edit` command.
+
+```bash
+kustomize edit --help
+
+kustomize edit set image nginx=nginx:1.2.2
+
+kustomize edit set namespace staging
+
+kustomize edit set label org:KodeKloud env:staging
+
+kustomize edit set replicas nginx-deployment=3
 
 
+kustomize edit add configmap db-creds --from-literal=password=password1 --from-literal=username=root 
 
+kustomize edit add resource db/db-depl.yaml
+```
+
+```yaml title="k8s/kustomization.yaml"
+images:
+- name: nginx
+  newTag: 1.2.2
+
+namespace: staging
+
+commonLabels:
+  org: KodeKloud
+  env: staging
+
+replicas:
+- count: 5
+  name: nginx-deployment
+
+configMapGenerator:
+- name: db-creds
+  literals:
+  - password=password1
+  - username=root
+
+resources:
+- db/db-depl.yaml
+```
+
+***Which `kustomization.yaml` file are we updating?!*** the one in the directory you ran the command from. 
+
+### Example
+
+![Kustomize Imperative Commands](./assets/kustomize/imgs/kustomize-imperative-commands.png)
 
 
 
