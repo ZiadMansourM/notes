@@ -1,0 +1,56 @@
+---
+# Ref: https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
+
+# Since we are using eks. The control plane is abstracted away from us.
+# We do NOT need to manage ETCD, scheduler, controller-manager, and API server.
+# The following will disable alerts for etcd and kube-scheduler.
+defaultRules:
+  rules:
+    etcd: false
+    kubeScheduler: false
+
+# Then disable servicemonitors for them
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+# Add a custom labels to discover ServiceMonitors
+prometheus:
+  prometheusSpec:
+    ## If true, a nil or {} value for prometheus.prometheusSpec.serviceMonitorSelector will cause the
+    ## prometheus resource to be created with selectors based on values in the helm deployment,
+    ## which will also match the servicemonitors created
+    ##
+    serviceMonitorSelectorNilUsesHelmValues: false
+
+    serviceMonitorSelector: {}
+      # matchLabels:
+        # Prometheus will watch servicemonitors objects
+        # with the following label:
+        # e.g. app.kubernetes.io/monitored-by: prometheus
+        # prometheus: monitor
+    serviceMonitorNamespaceSelector: {}
+      # matchLabels:
+        # By default, prometheus will ONLY detect servicemonitors
+        # in its own namespace `monitoring`. Instruct prometheus
+        # to select service monitors in all namespaces with the
+        # following label:
+        # e.g. app.kubernetes.io/part-of: prometheus
+        # monitoring: prometheus
+
+
+# Last thing update common labels.
+# If you did NOT add it. Prometheus Operator
+# will IGNORE default service monitors created
+# by this helm chart. Consequently, the prometheus 
+# targets section will be empty.
+# commonLabels:
+#   prometheus: monitor
+#   monitoring: prometheus
+
+# Optionally, you can update the grafana admin password
+grafana:
+  adminPassword: testing321

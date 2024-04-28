@@ -1,0 +1,82 @@
+---
+# Ref: https://github.com/kubernetes/ingress-nginx/blob/main/charts/ingress-nginx/values.yaml
+
+controller:
+  # name: controller
+  # -- Election ID to use for status update, by default it uses the controller name combined with a suffix of 'leader'
+  # electionID: ""
+  config:
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#compute-full-forwarded-for
+    compute-full-forwarded-for: "true"
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#use-forwarded-headers
+    use-forwarded-headers: "true"
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#proxy-body-size
+    proxy-body-size: "0"
+  
+  # This name we will reference this particular ingress controller
+  # incase you have multiple ingress controllers, you can use
+  # `ingressClassName` to specify which ingress controller to use.
+  # ALSO: For backwards compatibility with ingress.class annotation, use ingressClass. Algorithm is as follows, first ingressClassName is considered, if not present, controller looks for ingress.class annotation. 
+  # Ref: https://github.com/kubernetes/ingress-nginx/tree/main/charts/ingress-nginx
+  # E.g. very often we have `internal` and `external` ingresses in the same cluster.
+  ingressClass: internal-nginx
+
+  # New kubernetes APIs starting from 1.18 let us create an ingress class resource
+  ingressClassResource:
+    name: internal-nginx
+    # ENABLED: Create the IngressClass or not
+    enabled: true
+    # DEFAULT: If true, Ingresses without ingressClassName get assigned to this IngressClass on creation. Ingress creation gets rejected if there are multiple default IngressClasses. Ref: https://kubernetes.io/docs/concepts/services-networking/ingress/#default-ingress-class
+    default: true
+    # Ref: https://kubernetes.github.io/ingress-nginx/user-guide/multiple-ingress/#using-ingressclasses
+    controllerValue: "k8s.io/ingress-nginx-internal"
+
+  # Pod Anti-Affinity Role: deploys nginx ingress pods on a different nodes
+  # very helpful if you do NOT want to disrupt services during kubernetes rolling
+  # upgrades.
+  # IMPORTANT: try always to use it.
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - ingress-nginx
+        topologyKey: "kubernetes.io/hostname"
+  
+  # Should at least be 2 or configured auto-scaling
+  replicaCount: 1
+
+  # Admission webhooks: verifies the configuration before applying the ingress.
+  # E.g. syntax error in the configuration snippet annotation, the generated
+  # configuration becomes invalid
+  admissionWebhooks:
+    enabled: true
+
+  # Ingress is always deployed with some kind of a load balancer. You may use
+  # annotations supported by your cloud provider to configure it. E.g. in AWS
+  # you can use `aws-load-balancer-type` as the default is `classic`.
+  service:
+    external:
+      enabled: false
+    internal:
+      enabled: true
+      annotations:
+        # Ref: https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.2/guide/service/annotations/
+        # if you want to have an internal load balancer with only private
+        # IP address. That you can use within your VPC. you can use:
+        # Ref: https://docs.aws.amazon.com/elasticloadbalancing/latest/userguide/how-elastic-load-balancing-works.html
+        service.beta.kubernetes.io/aws-load-balancer-type: nlb
+        service.beta.kubernetes.io/aws-load-balancer-name: "load-balancer-internal"
+        service.beta.kubernetes.io/aws-load-balancer-schema: "internal"
+        # service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+
+  # We want to enable prometheus metrics on the controller
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      # additionalLabels:
+      #   prometheus: monitor
