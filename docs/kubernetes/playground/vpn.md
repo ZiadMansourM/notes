@@ -254,13 +254,15 @@ Thank you in advance ^^
         - ***Attribute Consume Service Endpoint (HTTP-POST)***: `https://self-service.clientvpn.amazonaws.com/api/auth/sso/saml`.
 2. Use `aws_iam_saml_provider` terraform resource to create the two SAML providers.
 3. Add attributes mappings according to the following table:
+
 User attribute in the application | Maps to this string value or user attribute in AWS IAM Identity Center | Format 
 :--: | :--: | :--:
-Subject | ${user:email} | emailAddress 
-Name | ${user:email} | unspecified 
-FirstName | ${user:givenName} | unspecified
-LastName | ${user:familyName} | unspecified
-memberOf | ${user:groups} | unspecified
+Subject | user:email | emailAddress 
+Name | user:email | unspecified 
+FirstName | user:givenName | unspecified
+LastName | user:familyName | unspecified
+memberOf | user:groups | unspecified
+
 4. Assign `admins` group to both SAML providers.
 5. Download the idp metadata.
 // The rest can be automated
