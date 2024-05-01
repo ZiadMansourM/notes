@@ -1,0 +1,5 @@
+---
+# Ref: https://github.com/grafana/helm-charts/blob/main/charts/promtail/values.yaml
+config:
+  clients:
+    - url: "http://loki-loki-distributed-gateway/loki/api/v1/push"
