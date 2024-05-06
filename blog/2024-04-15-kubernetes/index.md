@@ -11,34 +11,37 @@ import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 ```
 
-They say ***to master a new technology, you will have to play with it***. While learning a new technology, I always write down the questions that pops up in my mind. And document it while trying to find answers. You can access my study notes at [notes.sreboy.com](https://notes.sreboy.com/). These series of articles we be a refined version of my notes. I will try to cover the most important concepts and best practices **I learned from documentations, exploring source code on github, github issues threads, other articles, youtube videos and most importantly from trying myself and combing possibilities.**
+They say ***to master a new technology, you will have to play with it***. While learning a new technology, I always write down the questions that pops up in my mind. And document it while trying to find answers. You can access my study notes at [notes.sreboy.com](https://notes.sreboy.com/). These series of ***articles we be a refined version of my notes***. I will try to cover the most important concepts and best practices **I learned from documentations, exploring source code on github, github issues threads, other articles, youtube videos and most importantly from trying myself and combing possibilities.**
 
+In this article we will deploy using ***Terraform*** as much as possible with the minimum ***ClickOps*** required:
+- EKS cluster using terraform resources (No Modules).
+- Kube Prometheus Stack with Loki.
+- Two Ingress Nginx Controllers (Internal and External).
+- Basic Auth for Ingress. (***Soon External auth using Keycloak with Terraform***).
+- Configure Route53 with Split Horizon DNS.
+- Install Cert-Manager and configure it to automate the dns-01 challenge.
+- Restrict access to Route53 records by using IRSA.
+- Utilize sealed-secrets to store sensitive data in git. And Integrate it with kustomize.
+- Configure AWS Client VPN with AWS IAM Identity Center for SAML federated authentication.
+- Deploy ArgoCD with ***app-of-apps*** pattern. And then Deploy:
+  - [CalcTube](https://github.com/ZiadMansourM/calctube).
+  - [GoViolin](https://github.com/ZiadMansourM/GoViolin).
+  - [Docker Voting App](https://github.com/ZiadMansourM/voting-app).
+- Send ArgoCD and Alert Manager Notifications to Slack.
+- Utilize kustomize to: 
+  - Deploy custom dashboards to Grafana.
+  - Handle Sealed Secrets and ConfigMaps.
 
-In this article we will go through the deployment of the [GoViolin](https://github.com/ZiadMansourM/GoViolin) app and the [Docker Voting App](https://github.com/dockersamples/example-voting-app). We will aim to deploy a production grade EKS cluster and apply the best practices as much as we can with the following steps:
-- [X] Dockerize the GoViolin App.
-    - [X] Utilize multi-stage builds.
-    - [X] Build a minimal image.
-    - [X] Support ***Multi-Architecture***. E.g. `amd64` and `arm64`.
-    - [X] Use Github actions to build and push the image to Docker hub.
-- [X] Write the manifest files for the Voting App.
-- [X] Provision the EKS cluster using Terraform.
-    - [X] Use Terraform basic resources only no modules.
-- [X] Add and Configure Cert-Manager and Ingress Controller.
-- [X] Automate dns-01 challenge by giving access to Cert-Manager Service account ***ONLY*** to modify records in Route53. We will use terraform and IRSA with oidc provider from eks to achieve that following the `principle of least privilege`.
-- [X] Deploy and Expose the GoViolin App.
-- [X] Deploy the Demo Voting App.
-- [X] Expose Prometheus and Grafana.
-- [X] Delegate the `k8s` subdomain from Namecheap to Route53, then install a wildcard CNAME record pointing at our cluster.
-  - grafana.k8s.sreboy.com
-  - prometheus.k8s.sreboy.com
-  - goviolin.k8s.sreboy.com
-  - vote.k8s.sreboy.com
+Besides that we will discuss:
+- How to build multi architecture Docker images.
+- OpenVPN over Shadowsocks.
+- Split Horizon DNS.
 
-We will go through many concepts in details but in a bit hurry. Because it is a `From Code to Day Two Operation` article at the end of the day. But in the coming articles we will take a deep dive into each concept e.g.:
+<hr/>
+
+We will go through many concepts with some advanced configurations but in a bit hurry. Because it is a `From Code to Day Two Operation` article at the end of the day. But in the coming articles we will take a deep dive into each concept e.g.:
 - Docker Engine: Namespaces, cgroups, pivot_root, etc.
-- Deploying two Ingress Nginx Controllers Internal and External. Using helm and VPN to access the internal resources.
-- Restrict access to AWS roles by controlling ***who*** and ***how*** they can assume the role. While automating the whole process.
-- Provision and monitor a highly available kubernetes from scratch. E.g. monitor Certificates expiration dates. And applying best practices to secure the cluster.
+- Provision and monitor a highly available Kubernetes Cluster from scratch. E.g. monitor Certificates expiration dates. And applying best practices to secure the cluster.
 - Maintaining a HA etcd cluster in production.
 - Many more...
 
