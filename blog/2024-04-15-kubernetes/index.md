@@ -13,13 +13,13 @@ import TabItem from '@theme/TabItem';
 
 They say ***to master a new technology, you will have to play with it***. While learning a new technology, I always write down the questions that pops up in my mind. And document it while trying to find answers. You can access my study notes at [notes.sreboy.com](https://notes.sreboy.com/). These series of ***articles we be a refined version of my notes***. I will try to cover the most important concepts and best practices **I learned from documentations, exploring source code on github, github issues threads, other articles, youtube videos and most importantly from trying myself and combing possibilities.**
 
-In this article we will deploy using ***Terraform*** as much as possible with the minimum ***ClickOps*** required:
+In this article we will deploy using ***Terraform*** as much as possible, and with the minimum ***ClickOps*** required:
 - EKS cluster using terraform resources (No Modules).
-- Kube Prometheus Stack with Loki.
+- Kube Prometheus Stack with Loki (Helm).
 - Two Ingress Nginx Controllers (Internal and External).
 - Basic Auth for Ingress. (***Soon External auth using Keycloak with Terraform***).
 - Configure Route53 with Split Horizon DNS.
-- Install Cert-Manager and configure it to automate the dns-01 challenge.
+- Install Cert-Manager and configure it to automate the **dns-01** challenge.
 - Restrict access to Route53 records by using IRSA.
 - Utilize sealed-secrets to store sensitive data in git. And Integrate it with kustomize.
 - Configure AWS Client VPN with AWS IAM Identity Center for SAML federated authentication.
@@ -45,10 +45,18 @@ We will go through many concepts with some advanced configurations but in a bit 
 - Maintaining a HA etcd cluster in production.
 - Many more...
 
-## Dockerize GoViolin
+<hr/>
+
+Before we start you can access the code at:
+- [Terraformed Odyssey](https://github.com/ZiadMansourM/terraformed-odyssey).
+- [CalcTube](https://github.com/ZiadMansourM/calctube).
+- [GoViolin](https://github.com/ZiadMansourM/GoViolin).
+- [Docker Voting App](https://github.com/ZiadMansourM/voting-app).
+
+## GoViolin
 This app is written in ***Go***. It doesn't have any database or storage dependencies. Just a simple webapp that serves a static content.
 
-### How to run app locally
+### Run Locally
 
 <Tabs>
 
@@ -81,9 +89,11 @@ go build -o main
 
 
 ### Dockerfile
-We aim for our docker [image](https://hub.docker.com/repository/docker/ziadmmh/goviolin/general) to be as minimal as possible. So we will use `multi-stage` builds to achieve this. Also, supporting `amd64` and `arm64` architectures is a *MUST* for our app. Check [REFERENCES](#references) section for useful resources. In summary, we aim for a `multi-stage` and `multi-platform` Docker image.
+We aim for our docker [image](https://hub.docker.com/repository/docker/ziadmmh/goviolin/general) to be as minimal as possible. So we will use `multi-stage` builds to achieve this. Also, supporting `amd64` and `arm64` architectures is a *MUST* for our app. Check [REFERENCES](#references) section for useful resources. 
 
-```Dockerfile
+In summary, we aim for a `multi-stage` and `multi-platform` Docker image:
+
+```Dockerfile title="Dockerfile"
 FROM --platform=$BUILDPLATFORM golang:1.21.5 AS builder
 
 WORKDIR /app
@@ -111,7 +121,7 @@ CMD ["/app/main"]
 ```
 
 :::danger
-Please do NOT forget the `CGO_ENABLED=0` flag. Or you will face a weird error to bug. Enjoy this good read after you finish:
+Please do NOT forget the `CGO_ENABLED=0` flag. Or you will face a weird error, that is hard to bug. Enjoy this good read after you finish:
 - [Debugging a weird 'file not found' error by Julia Evans](https://jvns.ca/blog/2021/11/17/debugging-a-weird--file-not-found--error/)
 :::
 
@@ -159,13 +169,14 @@ docker buildx build --platform linux/arm64,linux/amd64 --progress plain -t ziadm
 </Tabs>
 
 ### GitHub Actions
-This is a dummy GitHub Actions workflow that builds, extracts the image labels from Dockerfile, and then pushes the image to Docker Hub [Repository](https://hub.docker.com/repository/docker/ziadmmh/goviolin/general).
+This is a dummy GitHub Actions workflow that builds, extracts the image labels from Dockerfile, and then pushes the image to Docker Hub [GoViolin Repository](https://hub.docker.com/repository/docker/ziadmmh/goviolin/general).
 
 :::tip
 It is a better idea to use the [docker meta data action](https://github.com/docker/metadata-action). To extract the image tags from e.g. when you push a new tag to the repository.
 :::
 
-
+<details>
+<summary>Click to expand</summary>
 
 ```yaml
 name: Test, Build, and Push Multi-Arch Image
@@ -173,8 +184,16 @@ name: Test, Build, and Push Multi-Arch Image
 on:
   push:
     branches:
-    - master
+      - master
   workflow_dispatch:
+
+env:
+  TAGS:
+  TAG_VERSION:
+  REPOSITORY:
+  BRANCH_NAME:
+
+permissions: write-all
 
 jobs:
   test-and-build:
@@ -198,37 +217,442 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       
       - name: Extract metadata from Dockerfile
-        run: echo "TAGS=$(awk '/^LABEL org.opencontainers.image.tags/{gsub(/"/,"",$2); gsub(".*=",""); print }' Dockerfile)" >> $GITHUB_ENV
+        run: |
+          echo "TAGS=$(awk '/^LABEL org.opencontainers.image.tags/{gsub(/"/,"",$2); gsub(".*=",""); print }' Dockerfile)" >> $GITHUB_ENV
+          echo "TAG_VERSION=$(echo $TAGS | cut -d: -f2)" >> $GITHUB_ENV
+      
+      - name: Check if TAGS is set
+        run: |
+          if [ -z "${{ env.TAGS }}" ]; then
+            echo "TAGS environment variable is not set. Please set it before running this workflow."
+            exit 1
+          fi
 
       - name: Build and Push Multi-Arch Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          tags: ${{ env.TAGS }}
+          tags: ${{ env.TAGS }},ziadmmh/goviolin:latest
+          push: true
+
+      - name: Set Enviroment Variables
+        run: |
+          echo "REPOSITORY=ZiadMansourM/terraformed-odyssey" >> $GITHUB_ENV
+          echo "BRANCH_NAME=update-goviolin-image-$RANDOM" >> $GITHUB_ENV
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REPOSITORY }}
+          token: ${{ secrets.GH_CLI_TOKEN }}
+          ref: main
+          path: terraformed-odyssey
+
+      - name: Checkout Branch and Update Image Tag
+        working-directory: terraformed-odyssey/kubernetes/goviolin
+        run: |
+          git checkout -b "${{ env.BRANCH_NAME }}"
+          rm -rf live && mkdir -p live
+          kustomize edit set image ziadmmh/goviolin:${{ env.TAG_VERSION }}
+          kustomize build > live/live.yaml
+      
+      - name: Update Image Tag and Send pull-request
+        working-directory: terraformed-odyssey/kubernetes/goviolin
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git status
+          git add live/live.yaml
+          git commit -m "Update goviolin image tag to ${{ env.TAGS }}"
+          git push origin ${{ env.BRANCH_NAME }}
+      
+      - name: Create Pull Request
+        working-directory: terraformed-odyssey/kubernetes/goviolin
+        run: |
+          echo "${{ secrets.GH_CLI_TOKEN }}" > token.txt
+
+          gh auth login --with-token < token.txt
+
+          gh pr create \
+          --title "Update goviolin image tag to ${{ env.TAGS }}" \
+          --body "This PR updates the goviolin image tag to ${{ env.TAGS }}." \
+          --base "main" \
+          --head "${{ env.BRANCH_NAME }}"
+```
+
+</details>
+
+
+## CalcTube
+I built this app to help me during my final exams. It calculates the time needed to watch a playlist on youtube. You just need to provide the playlist URL or Id and it returns the watch time corresponding to each speed.
+
+### Code
+The code is super straight forward and easy to understand. It uses the `pytube` library to interact with the YouTube API. Have a look and please reach out if you have any question ^^.
+
+<details>
+<summary>Click to expand</summary>
+
+```py title="main.py"
+from concurrent.futures import ThreadPoolExecutor
+import re
+import time
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
+from pytube import Playlist, YouTube
+
+
+app = FastAPI()
+templates = Jinja2Templates(directory="templates")
+
+@app.get("/assets/{filename}")
+async def read_item(filename: str):
+    return FileResponse(f"templates/assets/{filename}")
+
+def timeit(func):
+    def wrapper(*args, **kwargs):
+        print(f"Started {func.__name__}...")
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        print(f"Done {func.__name__} took {(end_time - start_time)*1000:.2f} ms to execute.")
+        return result
+    return wrapper
+
+
+def get_playlist_id(link: str) -> str:
+    video_pattern = r'(https?://)?(www\.)?(youtube\.com/watch\?v=)?([a-zA-Z0-9_-]+)&?list=([a-zA-Z0-9_-]+)'
+    if match := re.match(video_pattern, link):
+        return match[5]
+
+    playlist_pattern = r'(https?://)?(www\.)?(youtube\.com/playlist\?list=)?([a-zA-Z0-9_-]+)'
+    return match[4] if (match := re.match(playlist_pattern, link)) else link
+
+
+def get_video_length(url: str) -> int:
+    yt = YouTube(url)
+    return yt.length
+
+
+def get_playlist_duration(playlist_url: str) -> tuple[int, int, float]:
+    playlist_id = get_playlist_id(playlist_url)
+    playlist = Playlist(f"https://www.youtube.com/playlist?list={playlist_id}")
+    video_count = len(playlist.video_urls)
+
+    total_seconds = 0
+    with ThreadPoolExecutor(max_workers=video_count) as executor:
+        total_seconds = sum(executor.map(get_video_length, playlist.video_urls))
+
+    avg_video_length = total_seconds / video_count if video_count != 0 else 0
+
+    return total_seconds, video_count, avg_video_length
+
+
+def calculate_speed_times(total_seconds: int) -> dict:
+    speeds = [1, 1.25, 1.5, 1.75, 2]
+    times = {}
+
+    for speed in speeds:
+        time_at_speed = total_seconds / speed
+        hours = int(time_at_speed // 3600)
+        minutes = int((time_at_speed % 3600) // 60)
+        seconds = int(time_at_speed % 60)
+        times[speed] = f"{hours} hours, {minutes} minutes, {seconds} seconds"
+
+    return times
+
+
+def format_time(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = int(seconds % 60)
+    return f"{hours} hours, {minutes} minutes, {seconds} seconds"
+
+
+@timeit
+def run(user_input: str):
+    total_seconds, video_count, avg_video_length = get_playlist_duration(user_input)
+    times = calculate_speed_times(total_seconds)
+
+    return {
+        "videoCount": video_count,
+        "avgVideoLength": format_time(avg_video_length),
+        "speedTimes": dict(times.items()),
+    }
+
+@app.get("/", response_class=HTMLResponse)
+async def read_item(request: Request):
+    print("Here")
+    return templates.TemplateResponse("index.html", {"request": request})
+
+class PlaylistUrl(BaseModel):
+    playlistUrl: str
+
+@app.post("/calculate")
+async def calculate_playlist_duration(playlist_url: PlaylistUrl):
+    print("there")
+    response_data = run(playlist_url.playlistUrl)
+    return JSONResponse(content=response_data)
+
+```
+
+</details>
+
+### Dockerfile
+It is actually advised to use `requirements.txt` file to install the dependencies. But for the sake of simplicity I will hard code the dependencies install directly in the Dockerfile without any version pinning.
+
+```Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir fastapi
+RUN pip install --no-cache-dir uvicorn
+RUN pip install --no-cache-dir pytube
+RUN pip install --no-cache-dir jinja2
+
+COPY main.py /app/
+COPY templates /app/templates
+
+EXPOSE 80
+
+LABEL org.opencontainers.image.tags="ziadmmh/calctube:v0.0.1"
+LABEL org.opencontainers.image.authors="ziadmansour.4.9.2000@gmail.com"
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "80"]
+```
+
+### GitHub Actions
+Same as the GoViolin app, we will use a dummy GitHub Actions workflow that builds, extracts the image labels from Dockerfile, and then pushes the image to Docker Hub [CalcTube Repository](https://hub.docker.com/repository/docker/ziadmmh/calctube/general).
+
+<details>
+<summary>Click to expand</summary>
+
+```yaml
+name: Test, Build, and Push Multi-Arch Image
+
+on:
+  push:
+    branches:
+    - main
+  workflow_dispatch:
+
+env:
+  TAGS:
+  TAG_VERSION:
+  REPOSITORY:
+  BRANCH_NAME:
+
+permissions: write-all
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Extract metadata from Dockerfile
+        run: |
+          echo "TAGS=$(awk '/^LABEL org.opencontainers.image.tags/{gsub(/"/,"",$2); gsub(".*=",""); print }' Dockerfile)" >> $GITHUB_ENV
+          echo "TAG_VERSION=$(echo $TAGS | cut -d: -f2)" >> $GITHUB_ENV
+      
+      - name: Check if TAGS is set
+        run: |
+          if [ -z "${{ env.TAGS }}" ]; then
+            echo "TAGS environment variable is not set. Please set it before running this workflow."
+            exit 1
+          fi
+
+      - name: Build and Push Multi-Arch Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ env.TAGS }},ziadmmh/calctube:latest
           push: true
 ```
 
-## Provision EKS Cluster
-- [X] Provision: 
-  1. `VPC`.
-  2. `Internet Gw`.
-  3. `Subnets`.
-  4. `Elastic IPs`.
-  5. `NAT Gateway`.
-  6. `Route Tables`, `Route Tables Association`.
-  7. `eks-cluster-role`, `eks-cluster-role-attachment` then `EKS Cluster`.
-  8. `eks-node-group-general-role` and its Three different `eks-node-group-general-role-attachment`. Then `aws_eks_node_group`.
-- [X] Install `CertManager`, `Ingress`, `Prometheus`, and `Grafana`. 
-  - Configure `IAM` roles and `DNS` needed for them.
-- [X] Deploy Applications/Workloads.
-  - Deploy GoViolin App.
-  - Deploy Voting App.
+</details>
+
+Just double check the image tags pushed and note the `OS/ARCH` supported.
+
+![CalcTube Image Tags](./assets/imgs/calctube-image-tags.png)
+
+## Plan
+Each of your apps has its own Github repository, and github actions is responsible for building and pushing the images to Docker Hub. The images are then pulled by ArgoCD and deployed to the EKS cluster. So in total we aim for Four Repositories. The three repositories containing the code you can configure them as you like. But the `terraform-odyssey` repo which contains the applications manifests according to the GitOps principles. I have configured them as follows and that will affect how the ArgoCD will deploy the applications:
+
+<details>
+<summary>Click to expand</summary>
+
+```bash
+ziadh@Ziads-MacBook-Air terraformed-odyssey % tree
+.
+├── argocd
+│   ├── app-of-apps
+│   │   ├── calctube.yaml
+│   │   ├── goviolin.yaml
+│   │   ├── system.yaml
+│   │   └── voting-app.yaml
+│   └── root-app
+│       └── root-app.yaml
+├── kubernetes
+│   ├── README.md
+│   ├── calctube
+│   │   ├── 00-namespace.yaml
+│   │   ├── 01-deployment.yaml
+│   │   ├── 02-service.yaml
+│   │   ├── 03-ingress.yaml
+│   │   ├── files
+│   │   │   └── auth
+│   │   ├── kustomization.yaml
+│   │   └── live
+│   │       └── live.yaml
+│   ├── goviolin
+│   │   ├── 00-namespace.yaml
+│   │   ├── 01-deployment.yaml
+│   │   ├── 02-service.yaml
+│   │   ├── 03-ingress.yaml
+│   │   ├── files
+│   │   │   └── auth
+│   │   ├── kustomization.yaml
+│   │   └── live
+│   │       └── live.yaml
+│   ├── system
+│   │   ├── argocd-ingress.yaml
+│   │   ├── argocd-notifications-cm.yaml
+│   │   ├── components
+│   │   │   └── sealed-secret-config.yaml
+│   │   ├── dashboards
+│   │   │   ├── argocd-14584.json
+│   │   │   ├── cert-manager-20842.json
+│   │   │   ├── ingress-nginx-14314.json
+│   │   │   └── loki-14055.json
+│   │   ├── kustomization.yaml
+│   │   ├── live
+│   │   │   └── live.yaml
+│   │   ├── monitoring-ingress.yaml
+│   │   ├── sealed-argocd-notifications-secret.yaml
+│   │   └── secrets
+│   │       └── argocd-notifications-secret-ignore.yaml
+│   └── voting-app
+│       ├── db-deployment.yaml
+│       ├── db-service.yaml
+│       ├── ingress.yaml
+│       ├── kustomization.yaml
+│       ├── live
+│       │   └── live.yaml
+│       ├── namespace.yaml
+│       ├── redis-deployment.yaml
+│       ├── redis-service.yaml
+│       ├── result-deployment.yaml
+│       ├── result-service.yaml
+│       ├── vote-deployment.yaml
+│       ├── vote-service.yaml
+│       └── worker-deployment.yaml
+└── terraform
+    ├── 00_foundation
+    │   ├── 00-locals.tf
+    │   ├── 01-vpc.tf
+    │   ├── 02-igw.tf
+    │   ├── 03-subnets.tf
+    │   ├── 04-nat-gw-eip.tf
+    │   ├── 05-rt-rta.tf
+    │   ├── 06-eks.tf
+    │   ├── 07-node-group.tf
+    │   ├── providers.tf
+    │   ├── terraform.tfstate
+    │   ├── terraform.tfstate.backup
+    │   └── variables.tf
+    ├── 10_platform
+    │   ├── 00-kube-prometheus-stack-loki.tf
+    │   ├── 01-ingress-nginx.tf
+    │   ├── 02-route53.tf
+    │   ├── 03-iam-oidc.tf
+    │   ├── 04-cert-manager.tf
+    │   ├── 05-sealed-secret.tf
+    │   ├── data.tf
+    │   ├── files
+    │   │   ├── cert-manager-values.yaml
+    │   │   ├── external-nginx-values.yaml
+    │   │   ├── internal-nginx-values.yaml
+    │   │   ├── kube-prometheus-stack-values.yaml
+    │   │   ├── loki-distributed-values.yaml
+    │   │   └── promtail-values.yaml
+    │   ├── outputs.tf
+    │   ├── providers.tf
+    │   ├── terraform.tfstate
+    │   ├── terraform.tfstate.backup
+    │   └── variables.tf
+    └── 15_platform
+        ├── 00-argocd.tf
+        ├── 01-vpn-acm.tf
+        ├── 02-vpn-iam.tf
+        ├── 03-vpn-sg.tf
+        ├── 04-vpn-endpoint.tf
+        ├── data.tf
+        ├── files
+        │   └── argocd-values.yaml
+        ├── metadata
+        │   ├── aws-client-vpn-self-service.xml
+        │   └── aws-client-vpn.xml
+        ├── outputs.tf
+        ├── providers.tf
+        ├── terraform.tfstate
+        ├── terraform.tfstate.backup
+        └── variables.tf
+
+24 directories, 89 files
+```
+
+</details>
+
+We will go through each file in details, but for a quick overview:
+- `terraform` directory contains the terraform code to provision the EKS cluster and the needed resources.
+- `kubernetes` directory contains the manifests for the applications we will deploy.
+- `argocd` directory contains the ArgoCD manifests for the applications and the ArgoCD itself.
+
+Now lets discuss the contents of the `terraform` directory.
+
+### 00_Foundation Layer
+1. `VPC`.
+2. `Internet Gw`.
+3. `Subnets`.
+4. `Elastic IPs`.
+5. `NAT Gateways`.
+6. `Route Tables`, `Route Tables Association`.
+7. `eks-cluster-role`, `eks-cluster-role-attachment` then `EKS Cluster`.
+8. `eks-node-group-general-role` and its Three different `eks-node-group-general-role-attachment`. Then `aws_eks_node_group`.
+
+### 10_Platform Layer
+1. Kube Prometheus Stack and Loki.
+2. Ingress Nginx Controllers.
+3. Route53 Split Horizon DNS.
+4. Cert-Manager.
+5. Sealed Secrets.
+
+### 15_Platform Layer
+1. ArgoCD.
+2. VPN.
 
 ## Pre-requisites
 First make sure you downloaded `aws-cli` and created `terraform` user with ***programmatic access*** from the AWS Console.
 
-### Install AWS CLI
+### AWS CLI
 Follow the following link to download the latest aws-cli version compatible with your operating system:
 - [Install or update to the latest version of the AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
 
@@ -241,7 +665,7 @@ aws-cli/2.15.38 Python/3.11.8 Darwin/23.4.0 exe/x86_64 prompt/off
 The AWS CLI `version 2` is the most recent major version of the AWS CLI and supports all of the latest features. Some features introduced in version 2 are *NOT* backported to version 1 and you must upgrade to access those features.
 :::
 
-### Create Terraform User
+### Terraform User
 1. Open AWS Console then navigate to `IAM` Service.
 2. Click on `Users` then `Create User`.
 3. Name user `terraform`.
