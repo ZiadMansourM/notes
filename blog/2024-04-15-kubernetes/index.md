@@ -11,7 +11,9 @@ import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 ```
 
-They say ***to master a new technology, you will have to play with it***. While learning a new technology, I always write down the questions that pops up in my mind. And document it while trying to find answers. You can access my study notes at [notes.sreboy.com](https://notes.sreboy.com/). These series of ***articles we be a refined version of my notes***. I will try to cover the most important concepts and best practices **I learned from documentations, exploring source code on github, github issues threads, other articles, youtube videos and most importantly from trying myself and combing possibilities.**
+They say ***to master a new technology, you will have to play with it***. While learning a new technology, I always write down the questions that pops up in my mind. And document it while trying to find answers. You can access my study notes at [notes.sreboy.com](https://notes.sreboy.com/). 
+
+These series of ***articles will be a refined version of my notes***. I will try to cover the most important concepts and best practices **I learned from documentations, exploring source code on github, github issues threads, other articles, youtube videos, and most importantly, through hands-on experimentation and embracing the creative chaos of exploration, much like assembling LEGO blocks, where I constantly experiment and combine different elements to learn.**
 
 In this article we will deploy using ***Terraform*** as much as possible, and with the minimum ***ClickOps*** required:
 - EKS cluster using terraform resources (No Modules).
@@ -22,7 +24,9 @@ In this article we will deploy using ***Terraform*** as much as possible, and wi
 - Install Cert-Manager and configure it to automate the **dns-01** challenge.
 - Restrict access to Route53 records by using IRSA.
 - Utilize sealed-secrets to store sensitive data in git. And Integrate it with kustomize.
-- Configure AWS Client VPN with AWS IAM Identity Center for SAML federated authentication.
+- Configure AWS Client VPN and AWS IAM Identity Center with:
+  - SSO: SAML based Federated Authentication.
+  - Active Directory Authentication.
 - Deploy ArgoCD with ***app-of-apps*** pattern. And then Deploy:
   - [CalcTube](https://github.com/ZiadMansourM/calctube).
   - [GoViolin](https://github.com/ZiadMansourM/GoViolin).
@@ -34,20 +38,21 @@ In this article we will deploy using ***Terraform*** as much as possible, and wi
 
 Besides that we will discuss:
 - How to build multi architecture Docker images.
-- OpenVPN over Shadowsocks.
+- OpenVPN over Shadowsocks to bypass Deep Packet Inspection.
 - Split Horizon DNS.
 
 <hr/>
 
-We will go through many concepts with some advanced configurations but in a bit hurry. Because it is a `From Code to Day Two Operation` article at the end of the day. But in the coming articles we will take a deep dive into each concept e.g.:
-- Docker Engine: Namespaces, cgroups, pivot_root, etc.
-- Provision and monitor a highly available Kubernetes Cluster from scratch. E.g. monitor Certificates expiration dates. And applying best practices to secure the cluster.
+We will go through many concepts with some advanced configurations but at a quick pace. Because it is a `From Code to Day Two Operation` article at the end of the day. However, in the coming articles we will take a deep dive into each concept e.g.:
+- Docker Engine: namespaces, cgroups, pivot_root, etc.
+- Provision and Monitor a Highly Available Kubernetes Cluster from Scratch. E.g. monitor Certificates expiration dates. Besides, applying best practices to secure the cluster.
 - Maintaining a HA etcd cluster in production.
 - Many more...
 
 <hr/>
 
 Before we start you can access the code at:
+
 - [Terraformed Odyssey](https://github.com/ZiadMansourM/terraformed-odyssey).
 - [CalcTube](https://github.com/ZiadMansourM/calctube).
 - [GoViolin](https://github.com/ZiadMansourM/GoViolin).
@@ -91,7 +96,7 @@ go build -o main
 ### Dockerfile
 We aim for our docker [image](https://hub.docker.com/repository/docker/ziadmmh/goviolin/general) to be as minimal as possible. So we will use `multi-stage` builds to achieve this. Also, supporting `amd64` and `arm64` architectures is a *MUST* for our app. Check [REFERENCES](#references) section for useful resources. 
 
-In summary, we aim for a `multi-stage` and `multi-platform` Docker image:
+In summary, we aim for a minimal `multi-stage` and `multi-platform` Docker image:
 
 ```Dockerfile title="Dockerfile"
 FROM --platform=$BUILDPLATFORM golang:1.21.5 AS builder
@@ -121,7 +126,7 @@ CMD ["/app/main"]
 ```
 
 :::danger
-Please do NOT forget the `CGO_ENABLED=0` flag. Or you will face a weird error, that is hard to bug. Enjoy this good read after you finish:
+Please do NOT forget the `CGO_ENABLED=0` flag. Or you will face a weird error, that is hard to bug. Enjoy this good read after you finish :)
 - [Debugging a weird 'file not found' error by Julia Evans](https://jvns.ca/blog/2021/11/17/debugging-a-weird--file-not-found--error/)
 :::
 
@@ -137,11 +142,13 @@ The containerd image store is ***NOT*** enabled by default. To enable the featur
 1. Navigate to Settings in Docker Desktop.
 2. In the General tab, check Use containerd for pulling and storing images.
 3. Select Apply & Restart.
-> To ***disable*** the containerd image store, clear the Use containerd for pulling and storing images checkbox.
+
+To ***disable*** the containerd image store, clear the Use containerd for pulling and storing images checkbox.
+Please, do refer to the [docs](https://docs.docker.com/storage/containerd/) first.
 
 :::
 
-```bash title="Check Containerd Image Store is Enabled"
+```bash title="Check Containerd Image Store is Enabled" {1}
 docker info -f '{{ .DriverStatus }}'
 [[driver-type io.containerd.snapshotter.v1]]
 ```
@@ -172,7 +179,7 @@ docker buildx build --platform linux/arm64,linux/amd64 --progress plain -t ziadm
 This is a dummy GitHub Actions workflow that builds, extracts the image labels from Dockerfile, and then pushes the image to Docker Hub [GoViolin Repository](https://hub.docker.com/repository/docker/ziadmmh/goviolin/general).
 
 :::tip
-It is a better idea to use the [docker meta data action](https://github.com/docker/metadata-action). To extract the image tags from e.g. when you push a new tag to the repository.
+It is a better idea to use the [docker meta data action](https://github.com/docker/metadata-action). To extract the image tags e.g. when you push a new tag to the repository or commit hash.
 :::
 
 <details>
@@ -493,8 +500,13 @@ Just double check the image tags pushed and note the `OS/ARCH` supported.
 
 ![CalcTube Image Tags](./assets/imgs/calctube-image-tags.png)
 
+## Voting App
+The voting app is no different from the above setup. Please refer to the orginal repository and my fork of it for more information. And do reach out if you have any question ^^.
+
+![Voting App Architecture](./assets/imgs/voting-app-arch.png)
+
 ## Plan
-Each of your apps has its own Github repository, and github actions is responsible for building and pushing the images to Docker Hub. The images are then pulled by ArgoCD and deployed to the EKS cluster. So in total we aim for Four Repositories. The three repositories containing the code you can configure them as you like. But the `terraform-odyssey` repo which contains the applications manifests according to the GitOps principles. I have configured them as follows and that will affect how the ArgoCD will deploy the applications:
+Each of your apps has its own Github repository, and github actions is responsible for building and pushing the images to Docker Hub. The images are then pulled by ArgoCD and deployed to the EKS cluster. So in total we aim for Four Repositories. The three repositories containing the code you can configure them as you like. But the `terraform-odyssey` repo which contains the applications manifests according to the GitOps principles. I have configured it as follows and that will affect how the ArgoCD will deploy the applications:
 
 <details>
 <summary>Click to expand</summary>
@@ -706,6 +718,8 @@ Note that provisioning the `00_foundation` took from me:
 We will be using the following Terraform providers:
 - [AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
 
+### Variables
+
 ```hcl title="variables.tf"
 variable "region" {
   description = "The AWS region to deploy the resources."
@@ -719,13 +733,48 @@ variable "profile" {
   default     = "terraform"
 }
 
+variable "aws_vpc_main_cidr" {
+  description = "The CIDR block of the main VPC."
+  type        = string
+  default     = "10.0.0.0/16"
+}
+
 variable "cluster_name" {
   description = "The name of the EKS cluster."
   type        = string
   default     = "eks-cluster-production"
 }
 
+variable "eks_master_version" {
+  description = "The Kubernetes version of the EKS cluster."
+  type        = string
+  default     = "1.28"
+}
+
+variable "worker_nodes_k8s_version" {
+  description = "The Kubernetes version of the EKS worker nodes."
+  type        = string
+  default     = "1.28"
+}
+
+variable "node_group_scaling_config" {
+  description = "The scaling configuration for the EKS node group."
+
+  type = object({
+    desired_size = number
+    max_size     = number
+    min_size     = number
+  })
+
+  default = {
+    desired_size = 4
+    max_size     = 4
+    min_size     = 4
+  }
+}
 ```
+
+### Providers
 
 ```hcl title="providers.tf"
 terraform {
@@ -749,13 +798,14 @@ Because the `main.tf` file is a bit lengthy, I will break it here to be easier f
 
 > A better approach would have been grouping related resources in different `.tf` files. But for the sake of simplicity I didn't do it.
 
+> Update: I have updated the code and article to reflect the best practices.
+
 ### Local variable
-```hcl title="main.tf"
+```hcl title="00-locals.tf"
 locals {
-  cluster_name = "eks-cluster-production"
   tags = {
     author                   = "ziadh"
-    "karpenter.sh/discovery" = local.cluster_name
+    "karpenter.sh/discovery" = var.cluster_name
   }
 }
 ```
@@ -776,9 +826,9 @@ Prefix | First Ip Address | Last Ip Address | Number of Addresses
 192.168.0.0/16 | 192.168.0.0 | 192.168.255.255 | 65,536
 :::
 
-```hcl title="main.tf"
+```hcl title="01-vpc.tf"
 resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
+  cidr_block = var.aws_vpc_main_cidr
 
   # Makes instances shared on the host.
   instance_tenancy = "default"
@@ -799,7 +849,7 @@ resource "aws_vpc" "main" {
 ### Create Internet Gateway
 - [aws_internet_gateway](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/internet_gateway) terraform Resource.
 
-```hcl title="main.tf" 
+```hcl title="02-igw.tf" 
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
@@ -811,18 +861,18 @@ resource "aws_internet_gateway" "main" {
 We need two public and two private subnets. Read more [here](https://aws.github.io/aws-eks-best-practices/networking/subnets/#:~:text=When%20both%20the%20public%20and%20private%20endpoints%20are%20enabled%2C%20Kubernetes%20API%20requests%20from%20within%20the%20VPC%20communicate%20to%20the%20control%20plane%20via%20the%20X%2DENIs%20within%20your%20VPC.%20Your%20cluster%20API%20server%20is%20accessible%20from%20the%20internet.).
 
 - [aws_subnet](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/subnet) terraform Resource.
-- [Subnet Calculator](https://www.davidc.net/sites/default/subnets/subnets.html).
+- [Visual Subnet Calculator](https://www.davidc.net/sites/default/subnets/subnets.html).
 
 <Tabs>
 
 <TabItem value="Public Subnet 1">
 
-```hcl title="main.tf" {9,15,16}
+```hcl title="03-subnets.tf" {9,15,16}
 resource "aws_subnet" "public_1" {
   vpc_id = aws_vpc.main.id
 
   cidr_block        = "10.0.0.0/18"
-  availability_zone = "eu-central-1a"
+  availability_zone = "${var.region}a"
 
   # Required for EKS: Instances launched into the subnet
   # should be assigned a public IP address.
@@ -831,8 +881,8 @@ resource "aws_subnet" "public_1" {
   tags = merge(
     local.tags,
     {
-      Name                                          = "public-eu-central-1a"
-      "kubernetes.io/cluster/${local.cluster_name}" = "shared"
+      Name                                          = "public-${var.region}a"
+      "kubernetes.io/cluster/${var.cluster_name}" = "shared"
       "kubernetes.io/role/elb"                      = "1"
     }
   )
@@ -843,12 +893,12 @@ resource "aws_subnet" "public_1" {
 
 <TabItem value="Public Subnet 2">
 
-```hcl title="main.tf" {9,15,16}
+```hcl title="03-subnets.tf" {9,15,16}
 resource "aws_subnet" "public_2" {
   vpc_id = aws_vpc.main.id
 
   cidr_block        = "10.0.64.0/18"
-  availability_zone = "eu-central-1b"
+  availability_zone = "${var.region}b"
 
   # Required for EKS: Instances launched into the subnet
   # should be assigned a public IP address.
@@ -857,8 +907,8 @@ resource "aws_subnet" "public_2" {
   tags = merge(
     local.tags,
     {
-      Name                                          = "public-eu-central-1b"
-      "kubernetes.io/cluster/${local.cluster_name}" = "shared"
+      Name                                          = "public-${var.region}b"
+      "kubernetes.io/cluster/${var.cluster_name}" = "shared"
       "kubernetes.io/role/elb"                      = "1"
     }
   )
@@ -869,18 +919,18 @@ resource "aws_subnet" "public_2" {
 
 <TabItem value="Private Subnet 1">
 
-```hcl title="main.tf" {11,12}
+```hcl title="03-subnets.tf" {11,12}
 resource "aws_subnet" "private_1" {
   vpc_id = aws_vpc.main.id
 
   cidr_block        = "10.0.128.0/18"
-  availability_zone = "eu-central-1a"
+  availability_zone = "${var.region}a"
 
   tags = merge(
     local.tags,
     {
-      Name                                          = "private-eu-central-1a"
-      "kubernetes.io/cluster/${local.cluster_name}" = "shared"
+      Name                                          = "private-${var.region}a"
+      "kubernetes.io/cluster/${var.cluster_name}" = "shared"
       "kubernetes.io/role/internal-elb"             = "1"
     }
   )
@@ -891,18 +941,18 @@ resource "aws_subnet" "private_1" {
 
 <TabItem value="Private Subnet 2">
 
-```hcl title="main.tf" {11,12}
+```hcl title="03-subnets.tf" {11,12}
 resource "aws_subnet" "private_2" {
   vpc_id = aws_vpc.main.id
 
   cidr_block        = "10.0.192.0/18"
-  availability_zone = "eu-central-1b"
+  availability_zone = "${var.region}b"
 
   tags = merge(
     local.tags,
     {
-      Name                                          = "private-eu-central-1b"
-      "kubernetes.io/cluster/${local.cluster_name}" = "shared"
+      Name                                          = "private-${var.region}b"
+      "kubernetes.io/cluster/${var.cluster_name}" = "shared"
       "kubernetes.io/role/internal-elb"             = "1"
     }
   )
@@ -916,8 +966,8 @@ resource "aws_subnet" "private_2" {
 :::note
 Pay a close attention to:
 - The `"kubernetes.io/role/elb"` tag we had on public subnets vs `"kubernetes.io/role/internal-elb"`. Read more on the docs [here](https://docs.aws.amazon.com/eks/latest/userguide/network_reqs.html#:~:text=If%20you%20want%20to%20deploy%20load%20balancers%20to%20a%20subnet%2C%20the%20subnet%20must%20have%20the%20following%20tag%3A).
-- The `map_public_ip_on_launch = true` on public subnets ONLY.
-- Without this tag `"kubernetes.io/cluster/${local.cluster_name}"` the EKS cluster will not be able to communicate with the nodes.
+- The `map_public_ip_on_launch = true` on public subnets ***ONLY***.
+- Without this tag `"kubernetes.io/cluster/${var.cluster_name}"` the EKS cluster will not be able to communicate with the nodes.
 :::
 
 ### Elastic IPs and NAT GWs
@@ -929,7 +979,7 @@ Pay a close attention to:
 
 <TabItem value="Elastic IP and NAT Gw One">
 
-```hcl title="main.tf"
+```hcl title="04-nat-gw-eip.tf"
 resource "aws_eip" "nat_1" {
   depends_on = [aws_internet_gateway.main]
 }
@@ -946,7 +996,7 @@ resource "aws_nat_gateway" "gw_1" {
 
 <TabItem value="Elastic IP and NAT Gw Two">
 
-```hcl title="main.tf"
+```hcl title="04-nat-gw-eip.tf"
 resource "aws_eip" "nat_2" {
   depends_on = [aws_internet_gateway.main]
 }
@@ -974,7 +1024,7 @@ We will have three route tables and then associate each one of the four subnets 
 
 <TabItem value="Public Route Table">
 
-```hcl title="main.tf" {6}
+```hcl title="05-rt-rta.tf" {6}
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -991,7 +1041,7 @@ resource "aws_route_table" "public" {
 
 <TabItem value="Private Route Table One">
 
-```hcl title="main.tf" {6}
+```hcl title="05-rt-rta.tf" {6}
 resource "aws_route_table" "private_1" {
   vpc_id = aws_vpc.main.id
 
@@ -1008,7 +1058,7 @@ resource "aws_route_table" "private_1" {
 
 <TabItem value="Private Route Table Two">
 
-```hcl title="main.tf" {6}
+```hcl title="05-rt-rta.tf" {6}
 resource "aws_route_table" "private_2" {
   vpc_id = aws_vpc.main.id
 
@@ -1027,7 +1077,7 @@ resource "aws_route_table" "private_2" {
 
 And there respective associations:
 
-```hcl title="main.tf" {3,8}
+```hcl title="05-rt-rta.tf" {3,8}
 resource "aws_route_table_association" "public_1" {
   subnet_id      = aws_subnet.public_1.id
   route_table_id = aws_route_table.public.id
@@ -1058,7 +1108,7 @@ Note that we will attach the role to the [AmazonEKSClusterPolicy](https://github
 
 This role is used by the EKS control plane to make calls to AWS API operations on your behalf.
 
-```hcl title="main.tf"
+```hcl title="06-eks.tf"
 resource "aws_iam_role" "eks_cluster" {
   name = "eks-cluster"
 
@@ -1088,9 +1138,9 @@ resource "aws_iam_role_policy_attachment" "amazon_eks_cluster_policy" {
 
 - [aws_eks_cluster](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_cluster) terraform Resource.
 
-```hcl title="main.tf" {10}
+```hcl title="06-eks.tf" {10}
 resource "aws_eks_cluster" "eks" {
-  name = local.cluster_name
+  name = var.cluster_name
 
   # Amazon Resource Name (ARN) of the IAM role that provides permission for
   # the kubernetes control plane to make calls to aws API operations on your 
@@ -1133,7 +1183,7 @@ Also we control who can assume the `eks-node-group-general` by the ***assume_rol
 
 In case you were wondering why we need these policies, please follow the docs [here](https://docs.aws.amazon.com/eks/latest/userguide/create-node-role.html#:~:text=Before%20you%20create%20nodes%2C%20you%20must%20create%20an%20IAM%20role%20with%20the%20following%20permissions%3A) and the above links to know exactly what each policy gives permission to.
 
-```hcl title="main.tf"
+```hcl title="07-node-group.tf"
 resource "aws_iam_role" "node_group_general" {
   name = "eks-node-group-general"
 
@@ -1158,7 +1208,7 @@ resource "aws_iam_role" "node_group_general" {
 
 <TabItem value="AmazonEKSWorkerNodePolicy">
 
-```hcl title="main.tf"
+```hcl title="07-node-group.tf"
 resource "aws_iam_role_policy_attachment" "amazon_eks_worker_node_policy_general" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
   role = aws_iam_role.node_group_general.name
@@ -1169,7 +1219,7 @@ resource "aws_iam_role_policy_attachment" "amazon_eks_worker_node_policy_general
 
 <TabItem value="AmazonEKS_CNI_Policy">
 
-```hcl title="main.tf"
+```hcl title="07-node-group.tf"
 resource "aws_iam_role_policy_attachment" "amazon_eks_cni_policy_general" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
   role = aws_iam_role.node_group_general.name
@@ -1180,7 +1230,7 @@ resource "aws_iam_role_policy_attachment" "amazon_eks_cni_policy_general" {
 
 <TabItem value="AmazonEC2ContainerRegistryReadOnly">
 
-```hcl title="main.tf"
+```hcl title="07-node-group.tf"
 resource "aws_iam_role_policy_attachment" "amazon_ec2_container_registry_read_only_general" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
   role = aws_iam_role.node_group_general.name
@@ -1195,7 +1245,7 @@ resource "aws_iam_role_policy_attachment" "amazon_ec2_container_registry_read_on
 
 - [aws_eks_node_group](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eks_node_group) terraform Resource.
 
-```hcl title="main.tf"
+```hcl title="07-node-group.tf"
 resource "aws_eks_node_group" "nodes_general" {
   cluster_name    = aws_eks_cluster.eks.name
   node_group_name = "nodes-general-group"
@@ -1213,9 +1263,9 @@ resource "aws_eks_node_group" "nodes_general" {
   ]
 
   scaling_config {
-    desired_size = 2
-    max_size     = 2
-    min_size     = 2
+    desired_size = var.node_group_scaling_config.desired_size
+    max_size     = var.node_group_scaling_config.max_size
+    min_size     = var.node_group_scaling_config.min_size
   }
 
   # Valid Values: AL2_x86_64, BOTTLEROCKET_x86_64
@@ -1263,7 +1313,7 @@ scaling_config {
 We can not have less than 2 worker nodes in the EKS cluster. As we will add a `PodAntiAffinity` rule to the ingress-nginx controller. More later on this.
 :::
 
-### Test Foundation Layer
+### Test & Verify
 ```bash
 terraform fmt
 terraform init
@@ -1280,14 +1330,17 @@ kubectl get nodes,svc
 
 ## 10_Platform
 In this section we will provision:
-- Kube-Prometheus-Stack.
-- Ingress-Nginx.
+- Kube Prometheus Stack and Loki.
+- Two Ingress Nginx Controllers.
+- Route53 with split horizon dns.
 - Cert-Manager.
-- Route53 with `*.k8s.sreboy.com` subdomain.
+- Sealed Secrets.
 
-Note that provisioning the `10_platform` took from me:
+:::info
+Provisioning the `10_platform` took from me:
 - ~4 minutes to apply.
 - ~2 minutes to destroy.
+:::
 
 ### Vars
 
@@ -1309,7 +1362,6 @@ variable "cluster_name" {
   type        = string
   default     = "eks-cluster-production"
 }
-
 ```
 
 ### Providers
@@ -1322,12 +1374,20 @@ terraform {
       version = "5.45.0"
     }
     kubernetes = {
-      source = "hashicorp/kubernetes"
+      source  = "hashicorp/kubernetes"
       version = "2.29.0"
     }
+    kubectl = {
+      source  = "gavinbunney/kubectl"
+      version = "1.14.0"
+    }
     helm = {
-      source = "hashicorp/helm"
+      source  = "hashicorp/helm"
       version = "2.13.0"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "4.0.5"
     }
   }
 }
@@ -1337,17 +1397,9 @@ provider "aws" {
   profile = var.profile
 }
 
-data "aws_eks_cluster" "cluster" {
-  name = var.cluster_name
-}
-
-data "aws_eks_cluster_auth" "cluster" {
-  name = var.cluster_name
-}
-
 provider "kubernetes" {
-  host = data.aws_eks_cluster.cluster.endpoint
-  token = data.aws_eks_cluster_auth.cluster.token
+  host                   = data.aws_eks_cluster.cluster.endpoint
+  token                  = data.aws_eks_cluster_auth.cluster.token
   cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
 }
 
@@ -1359,9 +1411,15 @@ provider "helm" {
   }
 }
 
+provider "kubectl" {
+  host                   = data.aws_eks_cluster.cluster.endpoint
+  token                  = data.aws_eks_cluster_auth.cluster.token
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+  load_config_file       = false
+}
 ```
 
-### Install with Helm
+### Helm Intro
 We will use terraform but I wanted to show you how to install them with helm.
 
 ```bash title="Kube Prometheus Stack"
@@ -1392,8 +1450,6 @@ helm install ingress-nginx ingress-nginx/ingress-nginx \
 helm uninstall ingress-nginx -n ingress-nginx
 ```
 
-
-
 ```bash title="Cert-Manager"
 helm repo add jetstack https://charts.jetstack.io
 helm repo update
@@ -1408,107 +1464,108 @@ helm uninstall cert-manager -n cert-manager
 ```
 
 ### Draft Plan
-The following is just us drafting the plan we will use Terraform not the UI. Do not worry if you did not understand a certain part we are just drafting plan. We will go into details.
+The following is just us drafting the plan, as we will use Terraform not the UI. Do not worry if you did not understand a certain part we are just planning. We will go into details later:
 
 1. Delegate a subdomain to Route53. `*.k8s.sreboy.com`.
-  1. Create a public hosted zone in Route53.
-    - Domain Name: `k8s.sreboy.com`.
-  2. Create a `nameserver - NS` record in Namecheap.
-  3. (Optional) Test subdomain delegation with a dummy `test.k8s.sreboy.com` in Route53 and try to resolve it with `dig +short test.k8s.sreboy.com`. Value can be anything: `10.10.10.10`. You can also use this tool to see DNS propagation [whatsmydns](https://www.whatsmydns.net/).
+    1. Create a public hosted zone in Route53.
+        - Domain Name: `k8s.sreboy.com`.
+    2. Create a `nameserver - (NS)` record in your domain register e.g. Namecheap.
+    3. (Optional) Test subdomain delegation with a dummy `test.k8s.sreboy.com` in Route53 and try to resolve it with `dig +short test.k8s.sreboy.com`. Value can be anything: `10.10.10.10`. You can also use this tool to see DNS propagation [whatsmydns](https://www.whatsmydns.net/).
 2. We will use IRSA: ***IAM Roles for Service Accounts*** to allow the `cert-manager` to manage the `Route53` hosted zone. 
-  1. Create OpenID Connect Provider first:
-    - Open eks service in AWS Console. Then under clusters select the cluster.
-    - Under `Configuration` tab, Copy the `OpenID Connect Provider URL`.
-    - Navigate to IAM Service then `Identity Providers`. Select `Add provider`.
-    - Select `OpenID Connect`, paste url and `Get thumbprint`.
-    - Under Audience: `sts.amazonaws.com`.
-    - Click `Add provider`.
-  2. Create an IAM policy. Name the policy `CertManagerRoute53Access`.
-  ```json
-  {
-    "Version": "2012-10-17",
-    "Statement": [
-        {
-            "Effect": "Allow",
-            "Action": "route53:GetChange",
-            "Resource": "arn:aws:route53:::change/*"
-        },
-        {
-            "Effect": "Allow",
-            "Action": [
-                "route53:ChangeResourceRecordSets",
-                "route53:ListResourceRecordSets"
-            ],
-            "Resource": "arn:aws:route53:::hostedzone/<id>"
-        }
-    ]
-  }
-  ```
-  3. Craete an IAM role and ***associate it with the kubernetes service account***. Under `Roles` click `Create role`.
-    - Select type of trusted entity to be `Web identity`.
-    - Choose the identity provider created in step 1.
-    - For Audience: `sts.amazonaws.com`.
-    - Click next for permissions and attach `CertManagerRoute53Access` policy.
-    - Name the role `cert-manager-acme`.
-  4. To allow only our cert-manager kubernetes account to assume this role, we need to update `Trust Relationship` of the `cert-manager-acme` role. Click edit Trust Relationships:
-    - First we need the name of the service account attached to the cert-manager.
-    - Run `kubectl -n cert-manager get sa cert-manager` called `cert-083-cert-manager`.
-    - Update the trust relationship to be:
-    <Tabs>
-
-    <TabItem value="Before">
-
+    1. Create OpenID Connect Provider first:
+        - Open eks service in AWS Console. Then under clusters select the cluster.
+        - Under `Configuration` tab, Copy the `OpenID Connect Provider URL`.
+        - Navigate to IAM Service then `Identity Providers`. Select `Add provider`.
+        - Select `OpenID Connect`, paste url and `Get thumbprint`.
+        - Under Audience: `sts.amazonaws.com`.
+        - Click `Add provider`.
+    2. Create an IAM policy. Name the policy `CertManagerRoute53Access`:
     ```json
     {
       "Version": "2012-10-17",
       "Statement": [
-        {
-          "Effect": "Allow",
-          "Principal": {
-            "Federated": <OIDC_PROVIDER_ARN>
+          {
+              "Effect": "Allow",
+              "Action": "route53:GetChange",
+              "Resource": "arn:aws:route53:::change/*"
           },
-          "Action": "sts:AssumeRoleWithWebIdentity",
-          "Condition": {
-            "StringEquals": {
-              "oidc.eks.eu-central-1.amazonaws.com/id/<CLUSTER_ID>:aud": "sts.amazonaws.com"
-            }
+          {
+              "Effect": "Allow",
+              "Action": [
+                  "route53:ChangeResourceRecordSets",
+                  "route53:ListResourceRecordSets"
+              ],
+              "Resource": "arn:aws:route53:::hostedzone/<id>"
           }
-        }
       ]
     }
     ```
+    3. Craete an IAM role and ***associate it with the kubernetes service account***. Under `Roles` click `Create role`.
+        - Select type of trusted entity to be `Web identity`.
+        - Choose the identity provider created in step 1.
+        - For Audience: `sts.amazonaws.com`.
+        - Click next for permissions and attach `CertManagerRoute53Access` policy.
+        - Name the role `cert-manager-acme`.
+    4. To allow only our cert-manager kubernetes account to assume this role, we need to update `Trust Relationship` of the `cert-manager-acme` role. Click edit Trust Relationships:
+        - First we need the name of the service account attached to the cert-manager.
+        - Run `kubectl -n cert-manager get sa cert-manager` called `cert-083-cert-manager`.
+        - Update the trust relationship to be:
+        <Tabs>
 
-    </TabItem>
+        <TabItem value="Before">
 
-    <TabItem value="After">
-
-    ```json
-    {
-      "Version": "2012-10-17",
-      "Statement": [
+        ```json
         {
-          "Effect": "Allow",
-          "Principal": {
-            "Federated": <OIDC_PROVIDER_ARN>
-          },
-          "Action": "sts:AssumeRoleWithWebIdentity",
-          "Condition": {
-            "StringEquals": {
-              "oidc.eks.eu-central-1.amazonaws.com/id/<CLUSTER_ID>:sub": "system:serviceaccount:cert-manager:cert-manager"
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": <OIDC_PROVIDER_ARN>
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "oidc.eks.eu-central-1.amazonaws.com/id/<CLUSTER_ID>:aud": "sts.amazonaws.com"
+                }
+              }
             }
-          }
+          ]
         }
-      ]
-    }
-    ```
+        ```
 
-    </TabItem>
+        </TabItem>
 
-    </Tabs>
-  5. Attach policy `CertManagerRoute53Access` to the role `cert-manager-acme`. Remember the ***assume_role_policy*** created inside the role defines who can assume this role.
+        <TabItem value="After">
+
+        ```json
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": <OIDC_PROVIDER_ARN>
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "oidc.eks.eu-central-1.amazonaws.com/id/<CLUSTER_ID>:sub": "system:serviceaccount:cert-manager:cert-manager"
+                }
+              }
+            }
+          ]
+        }
+        ```
+
+        </TabItem>
+
+        </Tabs>
+    5. Attach policy `CertManagerRoute53Access` to the role `cert-manager-acme`. Remember the ***assume_role_policy*** created inside the role defines who can assume this role.
 3. Install `Kube Prometheus Stack` with custom `values.yaml` file.
 4. Install `Ingress-Nginx` with custom `values.yaml` file.
 5. Install `Cert-Manager` with custom `values.yaml` file.
+6. Instal `Sealed-Secret` with custom `values.yaml` file.
 
 ### Visualize Plan
 The following is a ***Simplified Dependency Graph*** made by [Mermaid](https://mermaid.js.org/).
@@ -1539,21 +1596,165 @@ graph TD
   end
 ```
 
-### AWS Caller Identity
+### Data
 
-Use this data source to get the access to the effective Account ID, User ID, and ARN in which Terraform is authorized.
+All needed data sources from previous layer. E.g. Use the `aws_caller_identity` data source to get the access to the effective Account ID, User ID, and ARN in which Terraform is authorized.
 
 - [aws_caller_identity](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity)
 
-```hcl title="main.tf"
+```hcl title="data.tf"
+data "aws_eks_cluster" "cluster" {
+  name = var.cluster_name
+}
+
+data "aws_eks_cluster_auth" "cluster" {
+  name = var.cluster_name
+}
+
+# Data Source: aws_caller_identity
+# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity
 data "aws_caller_identity" "current" {}
+
+data "kubernetes_service" "external_nginx_controller" {
+  metadata {
+    name      = "ingress-nginx-external-controller"
+    namespace = "ingress-nginx-external"
+  }
+
+  depends_on = [
+    helm_release.ingress-nginx-external
+  ]
+}
+
+data "kubernetes_service" "internal_nginx_controller" {
+  metadata {
+    name      = "ingress-nginx-internal-controller"
+    namespace = "ingress-nginx-internal"
+  }
+
+  depends_on = [
+    helm_release.ingress-nginx-internal
+  ]
+}
+
+data "tls_certificate" "demo" {
+  url = data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer
+}
 ```
+
+### Providers
+
+```hcl title="providers.tf"
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "5.45.0"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "2.29.0"
+    }
+    kubectl = {
+      source  = "gavinbunney/kubectl"
+      version = "1.14.0"
+    }
+    helm = {
+      source  = "hashicorp/helm"
+      version = "2.13.0"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "4.0.5"
+    }
+  }
+}
+
+provider "aws" {
+  region  = var.region
+  profile = var.profile
+}
+
+provider "kubernetes" {
+  host                   = data.aws_eks_cluster.cluster.endpoint
+  token                  = data.aws_eks_cluster_auth.cluster.token
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = data.aws_eks_cluster.cluster.endpoint
+    token                  = data.aws_eks_cluster_auth.cluster.token
+    cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+  }
+}
+
+provider "kubectl" {
+  host                   = data.aws_eks_cluster.cluster.endpoint
+  token                  = data.aws_eks_cluster_auth.cluster.token
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority.0.data)
+  load_config_file       = false
+}
+```
+
+### Variables
+
+```hcl title="variables.tf"
+variable "region" {
+  description = "The AWS region to deploy the resources."
+  type        = string
+  default     = "eu-central-1"
+}
+
+variable "profile" {
+  description = "The AWS profile to use."
+  type        = string
+  default     = "terraform"
+}
+
+variable "cluster_name" {
+  description = "The name of the EKS cluster."
+  type        = string
+  default     = "eks-cluster-production"
+}
+```
+
+### Outputs
+
+```hcl title="outputs.tf"
+output "internal_nginx_dns_lb" {
+  description = "Internal DNS name for the NGINX Load Balancer."
+  value       = data.kubernetes_service.internal_nginx_controller.status.0.load_balancer.0.ingress.0.hostname
+}
+
+output "ns_records" {
+  description = "The name servers for the public hosted zone"
+  value       = aws_route53_zone.public.name_servers
+}
+
+output "external_nginx_dns_lb" {
+  description = "External DNS name for the NGINX Load Balancer."
+  value       = data.kubernetes_service.external_nginx_controller.status.0.load_balancer.0.ingress.0.hostname
+}
+
+output "issuer_url_oidc" {
+  description = "Issuer URL for the OpenID Connect identity provider."
+  value       = data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer
+}
+
+output "issuer_url_oidc_replaced" {
+  description = "Issuer URL for the OpenID Connect identity provider without https://."
+  value       = replace(data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer, "https://", "")
+}
+```
+
+
 
 ### Kube Prometheus Stack
 
 - [helm_release](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) terraform Resource.
 
-```hcl
+```hcl title="00-kube-prometheus-stack-loki.tf"
 resource "helm_release" "kube_prometheus_stack" {
   name             = "monitoring"
   namespace        = "monitoring"
@@ -1568,9 +1769,46 @@ resource "helm_release" "kube_prometheus_stack" {
     "${file("files/kube-prometheus-stack-values.yaml")}"
   ]
 }
+
+resource "helm_release" "loki-distributed" {
+  name             = "loki"
+  namespace        = "monitoring"
+  repository       = "https://grafana.github.io/helm-charts"
+  chart            = "loki-distributed"
+  version          = "0.79.0"
+  timeout          = 300
+  atomic           = true
+  create_namespace = true
+
+  values = [
+    "${file("files/loki-distributed-values.yaml")}"
+  ]
+
+  depends_on = [helm_release.kube_prometheus_stack]
+}
+
+resource "helm_release" "promtail" {
+  name             = "promtail"
+  namespace        = "monitoring"
+  repository       = "https://grafana.github.io/helm-charts"
+  chart            = "promtail"
+  version          = "6.15.5"
+  timeout          = 300
+  atomic           = true
+  create_namespace = true
+
+  values = [
+    "${file("files/promtail-values.yaml")}"
+  ]
+}
 ```
 
+#### Custom values.yaml
+
 I provided inline comments explaining each value customized in the `kube-prometheus-stack-values.yaml` file.
+
+<details>
+<summary>Click Me (`kube-prometheus-stack-values.yaml`)</summary>
 
 ```yaml title="kube-prometheus-stack-values.yaml"
 ---
@@ -1629,145 +1867,106 @@ prometheus:
 # Optionally, you can update the grafana admin password
 grafana:
   adminPassword: testing321
+  additionalDataSources:
+  - name: Loki
+    type: loki
+    url: http://loki-loki-distributed-query-frontend.monitoring:3100
 ```
 
-### Route53
-It is time to create the public hosted zone in Route53. I registered my domain name from `Namecheap` and we will delegate the subdomain `k8s.sreboy.com` to Route53.
+</details>
 
-**Why do we need to delegate the subdomain to Route53?** Because we want to use the `cert-manager` to manage the `Route53` hosted zone. This is done using the `IAM Roles for Service Accounts` (IRSA). Much more easily to be done on Route53 than on Namecheap.
+<details>
+<summary>Click Me (`loki-distributed-values.yaml`)</summary>
 
-Basically, the steps are:
-1. Create Public Hosted Zone in Route53.
-2. Create a `NS` record in Namecheap to delegate the subdomain to Route53.
-3. (Optionally) Test the delegation with a dummy record.
-
-- [aws_route53_zone](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route53_zone) terraform Resource.
-
-```hcl title="main.tf"
-resource "aws_route53_zone" "k8s" {
-  name = "k8s.sreboy.com"
-}
-
-output "ns_records" {
-  description = "The name servers for the hosted zone"
-  value       = aws_route53_zone.k8s.name_servers
-}
+```yaml title="loki-distributed-values.yaml"
+---
+# Ref: https://github.com/grafana/helm-charts/blob/main/charts/loki-distributed/values.yaml
+loki:
+  serviceMonitor:
+    enabled: true
 ```
 
-:::warning Retarded Namecheap API
-Namecheap have a very retarded API [docs](https://www.namecheap.com/support/api/intro/#:~:text=You%20should%20whitelist%20at%20least%20one%20IP%20before%20your%20API%20access%20will%20begin%20to%20work.%20Please%20keep%20in%20mind%20that%20only%20IPv4%20addresses%20can%20be%20used.). They require you to whitelist the IP address of the server you are calling their API from. You can NOT add a cider only a static IP address and you have only 10 IP addresses to whitelist. Along side with other hilarious decisions from their API design wise e.g. while adding or updating a record you can DELETE all your previous records if you forgot to set mode from `OVERWRITE` to `MERGE` and if you are calling the API raw you do have to include all your previous records in the call. It is a joke (a bad one).
+</details>
 
+<details>
+<summary>Click Me (`promtail-values.yaml`)</summary>
 
-So, instead of using terraform:
-
-- [namecheap_domain_records](https://registry.terraform.io/providers/namecheap/namecheap/latest/docs/resources/domain_records) terraform resource.
-
-```hcl
-resource "namecheap_domain_records" "delegate_to_route53" {
-  domain = "sreboy.com"
-
-  record {
-    hostname = "k8s"
-    type = "NS"
-    address = aws_route53_zone.k8s.name_servers[0]
-  }
-
-  record {
-    hostname = "k8s"
-    type = "NS"
-    address = aws_route53_zone.k8s.name_servers[1]
-  }
-
-  record {
-    hostname = "k8s"
-    type = "NS"
-    address = aws_route53_zone.k8s.name_servers[2]
-  }
-
-  record {
-    hostname = "k8s"
-    type = "NS"
-    address = aws_route53_zone.k8s.name_servers[3]
-  }
-}
+```yaml title="promtail-values.yaml"
+---
+# Ref: https://github.com/grafana/helm-charts/blob/main/charts/promtail/values.yaml
+config:
+  clients:
+    - url: "http://loki-loki-distributed-gateway/loki/api/v1/push"
 ```
 
-I will do it from the UI of Namecheap once the public hosted zone is created in Route53.
-:::
-
-### Ingress-Nginx
-Now it is time to install the Ingress-Nginx controller. In an upcoming article we will see how to deploy two ingress-nginx controllers in the same cluster. One for internal services you will use VPN to access it and the other for external services which we will deploy now.
-
-- [kubernetes_namespace_v1](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/namespace_v1).
+</details>
 
 
-```hcl title="main.tf"
-resource "kubernetes_namespace_v1" "ingress-nginx" {
-  metadata {
-    name = "ingress-nginx"
+### Ingress Nginx
 
-    # No need to set labels here. Refer back to Kube
-    # Prometheus Stack values.yaml file.
-    # labels = {
-    #   monitoring : "prometheus"
-    # }
-  }
-}
+<Tabs>
 
-resource "helm_release" "ingress-nginx" {
-  name       = "ingress-nginx"
-  namespace  = kubernetes_namespace_v1.ingress-nginx.metadata.0.name
-  repository = "https://kubernetes.github.io/ingress-nginx"
-  chart      = "ingress-nginx"
-  version    = "4.0.1"
-  timeout    = 300
-  atomic     = true
+<TabItem value="External Ingress">
+
+```hcl title="01-ingress-nginx.tf" {2,3,16}
+resource "helm_release" "ingress-nginx-external" {
+  name             = "ingress-nginx-external"
+  namespace        = "ingress-nginx-external"
+  repository       = "https://kubernetes.github.io/ingress-nginx"
+  chart            = "ingress-nginx"
+  version          = "4.0.1"
+  timeout          = 300
+  atomic           = true
+  create_namespace = true
 
   depends_on = [
-    kubernetes_namespace_v1.ingress-nginx
+    helm_release.kube_prometheus_stack
   ]
 
   values = [
-    "${file("files/ingress-nginx-values.yaml")}"
-  ]
-}
-
-data "kubernetes_service" "external_nginx_controller" {
-  metadata {
-    name      = "ingress-nginx-controller"
-    namespace = "ingress-nginx"
-  }
-
-  depends_on = [
-    helm_release.ingress-nginx
-  ]
-}
-
-output "external_nginx_dns_lb" {
-  description = "External DNS name for the NGINX Load Balancer."
-  value = data.kubernetes_service.external_nginx_controller.status.0.load_balancer.0.ingress.0.hostname
-}
-
-resource "aws_route53_record" "wildcard_cname" {
-  zone_id = aws_route53_zone.k8s.zone_id
-  name = "*"
-  type = "CNAME"
-  ttl = "300"
-
-  records = [
-    data.kubernetes_service.external_nginx_controller.status.0.load_balancer.0.ingress.0.hostname
+    "${file("files/external-nginx-values.yaml")}"
   ]
 }
 ```
 
-I provided inline comments explaining each value customized in the `ingress-nginx-values.yaml` file alongside with a link to the official documentation.
+</TabItem>
 
-```yaml title="ingress-nginx-values.yaml"
+<TabItem value="Internal Ingress">
+
+```hcl title="01-ingress-nginx.tf" {2,3,16}
+resource "helm_release" "ingress-nginx-internal" {
+  name             = "ingress-nginx-internal"
+  namespace        = "ingress-nginx-internal"
+  repository       = "https://kubernetes.github.io/ingress-nginx"
+  chart            = "ingress-nginx"
+  version          = "4.0.1"
+  timeout          = 300
+  atomic           = true
+  create_namespace = true
+
+  depends_on = [
+    helm_release.kube_prometheus_stack
+  ]
+
+  values = [
+    "${file("files/internal-nginx-values.yaml")}"
+  ]
+}
+```
+
+</TabItem>
+
+</Tabs>
+
+<details>
+<summary>Click Me (`external-nginx-values.yaml`)</summary>
+
+```yaml title="external-nginx-values.yaml"
 ---
 # Ref: https://github.com/kubernetes/ingress-nginx/blob/main/charts/ingress-nginx/values.yaml
 
 controller:
-  # name: external-controller
+  # name: controller
   # -- Election ID to use for status update, by default it uses the controller name combined with a suffix of 'leader'
   # electionID: ""
   config:
@@ -1794,7 +1993,7 @@ controller:
     # DEFAULT: If true, Ingresses without ingressClassName get assigned to this IngressClass on creation. Ingress creation gets rejected if there are multiple default IngressClasses. Ref: https://kubernetes.io/docs/concepts/services-networking/ingress/#default-ingress-class
     default: false
     # Ref: https://kubernetes.github.io/ingress-nginx/user-guide/multiple-ingress/#using-ingressclasses
-    # controllerValue: "k8s.io/internal-ingress-nginx"
+    controllerValue: "k8s.io/ingress-nginx-external"
 
   # Pod Anti-Affinity Role: deploys nginx ingress pods on a different nodes
   # very helpful if you do NOT want to disrupt services during kubernetes rolling
@@ -1825,10 +2024,10 @@ controller:
   # you can use `aws-load-balancer-type` as the default is `classic`.
   service:
     annotations:
+      # Ref: https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.2/guide/service/annotations/
+      service.beta.kubernetes.io/aws-load-balancer-name: "load-balancer-external"
       service.beta.kubernetes.io/aws-load-balancer-type: nlb
-      # Also, if you want to have an internal load balancer with only private
-      # IP address. That you can use within your VPC. you can use:
-      # service.beta.kubernetes.io/aws-load-balancer-internal: 0.0.0.0/0
+      # service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
 
   # We want to enable prometheus metrics on the controller
   metrics:
@@ -1839,26 +2038,197 @@ controller:
       #   prometheus: monitor
 ```
 
+</details>
+
+<details>
+<summary>Click Me (`internal-nginx-values.yaml`)</summary>
+
+```yaml title="internal-nginx-values.yaml"
+---
+# Ref: https://github.com/kubernetes/ingress-nginx/blob/main/charts/ingress-nginx/values.yaml
+
+controller:
+  # name: controller
+  # -- Election ID to use for status update, by default it uses the controller name combined with a suffix of 'leader'
+  # electionID: ""
+  config:
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#compute-full-forwarded-for
+    compute-full-forwarded-for: "true"
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#use-forwarded-headers
+    use-forwarded-headers: "true"
+    # https://github.com/kubernetes/ingress-nginx/blob/main/docs/user-guide/nginx-configuration/configmap.md#proxy-body-size
+    proxy-body-size: "0"
+  
+  # This name we will reference this particular ingress controller
+  # incase you have multiple ingress controllers, you can use
+  # `ingressClassName` to specify which ingress controller to use.
+  # ALSO: For backwards compatibility with ingress.class annotation, use ingressClass. Algorithm is as follows, first ingressClassName is considered, if not present, controller looks for ingress.class annotation. 
+  # Ref: https://github.com/kubernetes/ingress-nginx/tree/main/charts/ingress-nginx
+  # E.g. very often we have `internal` and `external` ingresses in the same cluster.
+  ingressClass: internal-nginx
+
+  # New kubernetes APIs starting from 1.18 let us create an ingress class resource
+  ingressClassResource:
+    name: internal-nginx
+    # ENABLED: Create the IngressClass or not
+    enabled: true
+    # DEFAULT: If true, Ingresses without ingressClassName get assigned to this IngressClass on creation. Ingress creation gets rejected if there are multiple default IngressClasses. Ref: https://kubernetes.io/docs/concepts/services-networking/ingress/#default-ingress-class
+    default: true
+    # Ref: https://kubernetes.github.io/ingress-nginx/user-guide/multiple-ingress/#using-ingressclasses
+    controllerValue: "k8s.io/ingress-nginx-internal"
+
+  # Pod Anti-Affinity Role: deploys nginx ingress pods on a different nodes
+  # very helpful if you do NOT want to disrupt services during kubernetes rolling
+  # upgrades.
+  # IMPORTANT: try always to use it.
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - ingress-nginx
+        topologyKey: "kubernetes.io/hostname"
+  
+  # Should at least be 2 or configured auto-scaling
+  replicaCount: 1
+
+  # Admission webhooks: verifies the configuration before applying the ingress.
+  # E.g. syntax error in the configuration snippet annotation, the generated
+  # configuration becomes invalid
+  admissionWebhooks:
+    enabled: true
+
+  # Ingress is always deployed with some kind of a load balancer. You may use
+  # annotations supported by your cloud provider to configure it. E.g. in AWS
+  # you can use `aws-load-balancer-type` as the default is `classic`.
+  service:
+    external:
+      enabled: false
+    internal:
+      enabled: true
+      annotations:
+        # Ref: https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.2/guide/service/annotations/
+        # if you want to have an internal load balancer with only private
+        # IP address. That you can use within your VPC. you can use:
+        # Ref: https://docs.aws.amazon.com/elasticloadbalancing/latest/userguide/how-elastic-load-balancing-works.html
+        service.beta.kubernetes.io/aws-load-balancer-type: nlb
+        service.beta.kubernetes.io/aws-load-balancer-name: "load-balancer-internal"
+        service.beta.kubernetes.io/aws-load-balancer-schema: "internal"
+        # service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+
+  # We want to enable prometheus metrics on the controller
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      # additionalLabels:
+      #   prometheus: monitor
+```
+
+</details>
+
+
+### Route53
+It is time to create the public and private hosted zone in Route53, as I have said before we will implement the split horizon dns. I registered my domain name from `Namecheap` and we will delegate the subdomain `k8s.sreboy.com` to Route53.
+
+**Why do we need to delegate the subdomain to Route53?** Because we want to use the `cert-manager` to manage the `Route53` hosted zone. This is done using the `IAM Roles for Service Accounts` (IRSA). Much more easily to be done on Route53 than on Namecheap.
+
+Basically, the steps are:
+1. Create Public Hosted Zone in Route53.
+2. Create a `NS` record in Namecheap to delegate the subdomain to Route53.
+3. (Optionally) Test the delegation with a dummy record.
+
+Resources Used:
+- [aws_route53_zone](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route53_zone) terraform Resource.
+
+<Tabs>
+
+<TabItem value="Public Hosted Zone">
+
+```hcl title="02-route53.tf" {6,12}
+resource "aws_route53_zone" "public" {
+  name = "k8s.sreboy.com"
+}
+
+resource "aws_route53_record" "wildcard_cname" {
+  zone_id = aws_route53_zone.public.zone_id
+  name    = "*"
+  type    = "CNAME"
+  ttl     = "300"
+
+  records = [
+    data.kubernetes_service.external_nginx_controller.status.0.load_balancer.0.ingress.0.hostname
+  ]
+}
+```
+
+</TabItem>
+
+<TabItem value="Private Hosted Zone">
+
+```hcl title="02-route53.tf" {4-6,10,16}
+resource "aws_route53_zone" "private" {
+  name = "k8s.sreboy.com"
+
+  vpc {
+    vpc_id = data.aws_eks_cluster.cluster.vpc_config.0.vpc_id
+  }
+}
+
+resource "aws_route53_record" "internal_wildcard_cname" {
+  zone_id = aws_route53_zone.private.zone_id
+  name    = "*"
+  type    = "CNAME"
+  ttl     = "300"
+
+  records = [
+    data.kubernetes_service.internal_nginx_controller.status.0.load_balancer.0.ingress.0.hostname
+  ]
+}
+```
+
+</TabItem>
+
+</Tabs>
+
+::::warning Retarded Namecheap API
+Namecheap have a very retarded API. See [docs](https://www.namecheap.com/support/api/intro/#:~:text=You%20should%20whitelist%20at%20least%20one%20IP%20before%20your%20API%20access%20will%20begin%20to%20work.%20Please%20keep%20in%20mind%20that%20only%20IPv4%20addresses%20can%20be%20used.). They require you to whitelist the IP address of the server you are calling their API from. You can NOT add a cider only a static IP address and you have only 10 IP addresses to whitelist. Along side with other hilarious decisions from their API design wise e.g. while adding or updating a record you can DELETE all your previous records if you forgot to set mode from `OVERWRITE` to `MERGE` and if you are calling the API raw you do have to include all your previous records in the call. It is a joke (a bad one).
+
+
+So, instead of using terraform:
+
+- [namecheap_domain_records](https://registry.terraform.io/providers/namecheap/namecheap/latest/docs/resources/domain_records) terraform resource.
+
+```hcl
+resource "namecheap_domain_records" "delegate_to_route53" {
+  domain = "sreboy.com"
+
+  for_each = aws_route53_zone.k8s.name_servers
+
+  record {
+    hostname = "k8s"
+    type = "NS"
+    address = each.value
+  }
+}
+```
+
+I will do it from the UI of Namecheap once the public hosted zone is created in Route53.
+
+:::tip
+You can use `shadowsocks` if your ISP does not provide static IP address service like me. Then just white list the Elastic IP of this shadowsocks server. I learned that after I finished writing the article :)
+:::
+::::
+
 ### Cert-Manager
 Now it is time to install the `cert-manager`. We will use the `cert-manager` to manage and automate obtaining and renewing SSL certificates for our services.
 
 It is the same part as the block called `Cert-Manager Configuration` in the graph above. But I will divide them into separate blocks for better understanding.
 
-```hcl title="main.tf"
-output "issuer_url_oidc" {
-  description = "Issuer URL for the OpenID Connect identity provider."
-  value       = data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer
-}
-
-output "issuer_url_oidc_replaced" {
-  description = "Issuer URL for the OpenID Connect identity provider without https://."
-  value       = replace(data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer, "https://", "")
-}
-
-data "tls_certificate" "demo" {
-  url = data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer
-}
-
+```hcl title="03-iam-oidc.tf"
 resource "aws_iam_openid_connect_provider" "eks_oidc" {
   url             = data.aws_eks_cluster.cluster.identity.0.oidc.0.issuer
   client_id_list  = ["sts.amazonaws.com"]
@@ -1866,12 +2236,13 @@ resource "aws_iam_openid_connect_provider" "eks_oidc" {
 }
 ```
 
-```hcl title="main.tf"
+```hcl title="04-cert-manager.tf"
 resource "aws_iam_policy" "cert_manager_route53_access" {
   name        = "CertManagerRoute53Access"
   description = "Policy for cert-manager to manage Route53 hosted zone"
   depends_on = [
-    aws_route53_zone.k8s
+    aws_route53_zone.public,
+    aws_route53_zone.private,
   ]
   policy = <<EOF
 {
@@ -1888,7 +2259,10 @@ resource "aws_iam_policy" "cert_manager_route53_access" {
         "route53:ChangeResourceRecordSets",
         "route53:ListResourceRecordSets"
       ],
-      "Resource": "arn:aws:route53:::hostedzone/${aws_route53_zone.k8s.zone_id}"
+      "Resource": [
+        "arn:aws:route53:::hostedzone/${aws_route53_zone.public.zone_id}",
+        "arn:aws:route53:::hostedzone/${aws_route53_zone.private.zone_id}"
+      ]
     }
   ]
 }
@@ -1900,11 +2274,7 @@ EOF
   # [2]: The second statement one to update dns records such as txt 
   # for acme challange. We need to replace `<id>` with the hosted zone id.
 }
-```
 
-The next part `cert_manager_acme` role was the most challenging part to me. As I wanted to make sure that the ***assume_role_policy*** is really restricting the role to be assumed by only the `cert-manager` service account. That is why we created the resources in the first code block above the `eks_oidc` resource.
-
-```hcl title="main.tf"
 resource "aws_iam_role" "cert_manager_acme" {
   name               = "cert-manager-acme"
   assume_role_policy = <<EOF
@@ -1927,40 +2297,24 @@ resource "aws_iam_role" "cert_manager_acme" {
 }
 EOF
 }
-```
 
-```hcl title="main.tf"
 resource "aws_iam_role_policy_attachment" "cert_manager_acme" {
   role       = aws_iam_role.cert_manager_acme.name
   policy_arn = aws_iam_policy.cert_manager_route53_access.arn
 }
-```
-
-```hcl title="main.tf"
-resource "kubernetes_namespace_v1" "cert-manager" {
-  metadata {
-    name = "cert-manager"
-    
-    # No need to set labels here. Refer back to Kube
-    # Prometheus Stack values.yaml file.
-    # labels = {
-    #   monitoring : "prometheus"
-    # }
-  }
-}
 
 resource "helm_release" "cert-manager" {
-  name       = "cert-manager"
-  namespace  = kubernetes_namespace_v1.cert-manager.metadata.0.name
-  repository = "https://charts.jetstack.io"
-  chart      = "cert-manager"
-  version    = "1.14.4"
-  timeout    = 300
-  atomic     = true
+  name             = "cert-manager"
+  namespace        = "cert-manager"
+  repository       = "https://charts.jetstack.io"
+  chart            = "cert-manager"
+  version          = "1.14.4"
+  timeout          = 300
+  atomic           = true
+  create_namespace = true
 
   depends_on = [
     aws_iam_role_policy_attachment.cert_manager_acme,
-    kubernetes_namespace_v1.cert-manager
   ]
 
   values = [
@@ -1978,6 +2332,7 @@ installCRDs: true
 # Enable prometheus metrics, and create a service
 # monitor object
 prometheus:
+  # Ref: https://github.com/cert-manager/cert-manager/blob/master/deploy/charts/cert-manager/README.template.md#prometheusenabled--bool
   enabled: true
   servicemonitor:
     enabled: true
@@ -1991,33 +2346,124 @@ serviceAccount:
     eks.amazonaws.com/role-arn: ${aws_iam_role.cert_manager_acme.arn}
 extraArgs:
 # You need to provide the following to be able to use the IAM role.
-# If you are using cluster issuer use `--cluster-issuer-ambient-credentials`
-# and use `--issuer-ambient-credentials` for namespaced issuer. I will activate 
-# both.
+# If you are using cluster issuer you need to replace it with:
 - --cluster-issuer-ambient-credentials
 - --issuer-ambient-credentials
+# - --enable-certificate-owner-ref=true
+- --dns01-recursive-nameservers-only
+- --dns01-recursive-nameservers=8.8.8.8:53,1.1.1.1:53
     YAML
   ]
 }
 ```
 
-### Verify 10_Platform Layer
-- [ ] Verify that an oidc provider is created under the IAM service.
+<Tabs>
+
+<TabItem value="Public Cluster Issuer">
+
+```hcl title="04-cert-manager.tf" {24}
+resource "kubectl_manifest" "cert_manager_cluster_issuer_public" {
+  depends_on = [
+    helm_release.cert-manager
+  ]
+
+  yaml_body = yamlencode({
+    "apiVersion" = "cert-manager.io/v1"
+    "kind"       = "ClusterIssuer"
+    "metadata" = {
+      "name" = "letsencrypt-dns01-production-cluster-issuer-public"
+    }
+    "spec" = {
+      "acme" = {
+        "server" = "https://acme-v02.api.letsencrypt.org/directory"
+        "email"  = "ziadmansour.4.9.2000@gmail.com"
+        "privateKeySecretRef" = {
+          "name" = "letsencrypt-production-dns01-public-key-pair"
+        }
+        "solvers" = [
+          {
+            "dns01" = {
+              "route53" = {
+                "region"       = "${var.region}"
+                "hostedZoneID" = "${aws_route53_zone.public.zone_id}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  })
+}
+```
+
+</TabItem>
+
+<TabItem value="Private Cluster Issuer">
+
+```hcl title="04-cert-manager.tf" {24}
+resource "kubectl_manifest" "cert_manager_cluster_issuer_private" {
+  depends_on = [
+    helm_release.cert-manager
+  ]
+
+  yaml_body = yamlencode({
+    "apiVersion" = "cert-manager.io/v1"
+    "kind"       = "ClusterIssuer"
+    "metadata" = {
+      "name" = "letsencrypt-dns01-production-cluster-issuer-private"
+    }
+    "spec" = {
+      "acme" = {
+        "server" = "https://acme-v02.api.letsencrypt.org/directory"
+        "email"  = "ziadmansour.4.9.2000@gmail.com"
+        "privateKeySecretRef" = {
+          "name" = "letsencrypt-production-dns01-private-key-pair"
+        }
+        "solvers" = [
+          {
+            "dns01" = {
+              "route53" = {
+                "region"       = "${var.region}"
+                "hostedZoneID" = "${aws_route53_zone.private.zone_id}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  })
+}
+```
+
+</TabItem>
+
+</Tabs>
+
+
+### Test & Verify
 - [ ] Verify that the dns delegation for the subdomain is working successfully.
-  - Use [whatsmydns](https://www.whatsmydns.net/) to check the DNS propagation. Enter `k8s.sreboy.com` and see if the `NS` records are propagated. you should see the same output produced by output `ns_records` run `terraform output ns_records` to see them again.
+    - Use [whatsmydns](https://www.whatsmydns.net/) to check the DNS propagation. Enter `k8s.sreboy.com` and see if the `NS` records are propagated. you should see the same output produced by output `ns_records` run `terraform output ns_records` to see them again.
 - [ ] Verify that the wildcard CNAME record is created in Route53:
-  - Run `dig +short test.k8s.sreboy.com` and see if it resolves to the external load balancer of the ingress-nginx controller. Or any other subdomain it is a wildcard `dig +short <*>.k8s.sreboy.com`.
+    - Run `dig +short test.k8s.sreboy.com` and see if it resolves to the external load balancer of the ingress-nginx controller. 
+    - Or any other subdomain it is a wildcard `dig +short <*>.k8s.sreboy.com`.
+- [ ] Before You move to the ***NEXT*** layer:
+    - Run:    
+```bash
+cd terraformed-odyssey/kubernetes/system
+
+# Create Secret 
+kubectl create secret generic argocd-notifications-secret -n argocd --from-literal slack-token=<slack-token> --dry-run=client -o yaml > secrets/argocd-notifications-secret.yaml
+# Do NOT Forget to add annotations as in here:
+# Ref: https://github.com/ZiadMansourM/terraformed-odyssey/blob/main/kubernetes/system/secrets/.gitkeep
+
+# Then Seal the Secret
+kubeseal --controller-name sealed-secrets --controller-namespace sealed-secrets --format yaml < secrets/argocd-notifications-secret-ignore.yaml > sealed-argocd-notifications-secret.yaml
+```
 
 ## 15_Platform
-In this section we need to:
-- [ ] Create `Issuer` or `ClusterIssuer` for the `cert-manager` so that ingresses can use them to obtain SSL certificates.
-- [ ] Expose these endpoints:
-  - prometheus.k8s.sreboy.com
-  - grafana.k8s.sreboy.com
-  - We will do that by creating an `Ingress` resource for each of them.
-- [ ] Expose Custom Dashboards for the CertManager and Ingress-Nginx Controller.
-- [ ] Deploy the Goviolin app.
-- [ ] Deploy the Voting app.
+In this layer, we will deploy:
+- ArgoCD using app-of-apps pattern.
+- AWS Client VPN using various authentication methods and over a proxy.
 
 :::tip
 You can use kustomize or define yaml variables inside the yaml files. Do what you feel comfortable with. I will use the yaml files directly for simplicity.
