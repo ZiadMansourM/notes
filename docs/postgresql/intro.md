@@ -159,6 +159,8 @@ Temporary files that are accessed by block are also encrypted using AES-128-XTS 
 ### Redacting data
 EDB Postgres Advanced Server includes features to help you to maintain, secure, and operate EDB Postgres Advanced Server databases. The DB Postgres Advanced Server Data redaction feature limits sensitive data exposure by dynamically changing data as it's displayed for certain users.
 
+What is data redaction? simple demonstration [here](https://youtu.be/AFJbeOvkW3Y?si=sWNPpo7qx1DFjjXV).
+
 ### Privilege Analysis
 EDB Postgres Advanced Server provides support for capturing and analyzing the privilege usage by the users.
 
