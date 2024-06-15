@@ -17,7 +17,7 @@ helm install sealed-secrets --version 2.15.3 sealed-secrets/sealed-secrets --nam
 ```
 
 ```bash
-kubectl create secret generic argocd-notifications-secret -n argocd --from-literal slack-token=xoxb-7013808384532-7004747320342-aWaHljQazh1lgpUovWPtrEs4 --dry-run=client -o yaml | kubeseal --controller-name sealed-secrets --controller-namespace sealed-secrets --format yaml > sealed-argocd-notifications-secret.yaml
+kubectl create secret generic argocd-notifications-secret -n argocd --from-literal slack-token=<slack-token> --dry-run=client -o yaml | kubeseal --controller-name sealed-secrets --controller-namespace sealed-secrets --format yaml > sealed-argocd-notifications-secret.yaml
 ```
 
 ```yaml title="builtin-config.yaml"
