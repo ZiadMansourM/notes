@@ -21,6 +21,8 @@ They say ***to master a new technology, you will have to play with it***. While 
 
 These series of ***articles will be a refined version of my notes***. I will try to cover the most important concepts and best practices **I learned from documentations, exploring source code on github, github issues threads, other articles, youtube videos, and most importantly, through hands-on experimentation and embracing the creative chaos of exploration, much like assembling LEGO blocks, where I constantly experiment and combine different elements to learn.**
 
+<!-- truncate -->
+
 In this article we will deploy using ***Terraform*** as much as possible, and with the minimum ***ClickOps*** required:
 - EKS cluster using terraform resources (No Modules).
 - Kube Prometheus Stack with Loki (Helm).
