@@ -57,8 +57,11 @@ const config = {
           showReadingTime: true,
           // Please change this to your repo.
           // Remove this to remove the "edit this page" links.
-          editUrl:
-            'https://github.com/ZiadMansourM/notes/tree/main',
+          editUrl: 'https://github.com/ZiadMansourM/notes/tree/main',
+          postsPerPage: 'ALL',
+          // sidebar
+          blogSidebarTitle: 'All posts',
+          blogSidebarCount: 'ALL',
         },
         theme: {
           customCss: './src/css/custom.css',
