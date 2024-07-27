@@ -11,6 +11,12 @@ import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 ```
 
+<hr/>
+
+<iframe src='/pages/soon.html' height="300px" width='100%' scrolling="no"></iframe> 
+
+<hr/>
+
 They say ***to master a new technology, you will have to play with it***. While learning a new technology, I always write down the questions that pops up in my mind. And document it while trying to find answers. You can access my study notes at [notes.sreboy.com](https://notes.sreboy.com/). 
 
 These series of ***articles will be a refined version of my notes***. I will try to cover the most important concepts and best practices **I learned from documentations, exploring source code on github, github issues threads, other articles, youtube videos, and most importantly, through hands-on experimentation and embracing the creative chaos of exploration, much like assembling LEGO blocks, where I constantly experiment and combine different elements to learn.**
