@@ -58,7 +58,6 @@ I have explored some ways to improve your score.
 ### Provincial Nominee Program
 - +600 >>> `1066`.
 
-
 ## Plan
 - Aim for:
     - [ ] Federal Skilled Worker (TEER 1).
@@ -69,5 +68,5 @@ I have explored some ways to improve your score.
     1. B2 in French.
     2. Add (3 Years of Experience) >>> `491`.
     3. Get (Job Offer) >>> `541`.
-- I can not:
+- Can not:
     - Afford a Canadian Master.
