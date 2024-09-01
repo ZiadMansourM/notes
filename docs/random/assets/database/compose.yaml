@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: p@ssw0rd
+      POSTGRES_DB: postgres
+    volumes:
+    - postgres_data:/var/lib/postgresql/data
+    # Optional: If you want to initialize with a custom SQL script
+    - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+    - 127.0.0.1:5432:5432
+    networks:
+    - postgres_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  postgres_network:
+    driver: bridge
