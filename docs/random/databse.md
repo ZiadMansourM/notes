@@ -265,9 +265,65 @@ SELECT * FROM SALES;
 COMMIT;
 ```
 
+:::warning
+Each DBMS implements Isolation Levels differently.
+:::
+
+![isolation levels and read phenomena](./assets/database/isolation_levels_read_phenomena.png)
+
 ### Read Uncommitted
-No isolation. Any change from outside is visible to the TX, committed or not.
+No isolation. Any change from outside is visible to the TX, committed or not. 
+
+> As a result you can get Dirty Read 
 
 :::info
 No database supports Read Uncommitted, Except for SQL Server.
+:::
+
+### Read Committed
+Each query in a TX only sees committed changes by other TXs. 
+
+> As a result Non-repeatable read can occur.
+
+:::info
+One of the most popular isolation levels. This is the default isolation level for many database engines.
+:::
+
+### Repeatable Read
+The isolation level that was invented to fix the non-repeatable read; The TX will make sure that when a query reads a row, that row will remain unchanged while it is running.
+ 
+:::note
+The TX will make sure that when the query reads a row. ONLY when it needs to read tho. But if you did not read it the db engine will NOT store a copy of that row.
+:::
+
+:::info SnapShot Isolation Level
+This isolation level takes a whole snapshot of the database.
+:::
+
+> This isolation level does not cure phantom read.
+
+
+:::warning
+PostgreSQL Repeatable Read is actually a Snapshot Isolation. Everything is versioned. When you start a TX you timestamp which version you are in.
+:::
+
+### Snapshot
+Each query in a TX only sees changes that have been committed up to the start of the TX. It is like a snapshot version of the database at that moment.
+
+It was invited to fix Phantom Read.
+
+### Serializable
+TXs are run `as if` they serialized one after the other. Depends on DB Engine.
+
+### Implementation
+- Each DBMS implements Isolation Level differently.
+- Pessimistic - Row level locks, table locks, page locks to avoid lost updates.
+- Optimistic - No locks, just tracks if things changed and fail the transaction if so. 
+
+:::warning Lock escalation
+Take care of lock escalation, you can lock your entire table.
+:::
+
+:::note
+Lock management is expensive. Especially, row level locks.
 :::
