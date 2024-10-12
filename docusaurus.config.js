@@ -75,6 +75,11 @@ const config = {
     ({
       // Replace with your project's social card
       image: 'img/sre-boy-logo.jpeg',
+      blog: {
+        sidebar: {
+          groupByYear: false,
+        }
+      },
       navbar: {
         title: 'My Site',
         logo: {

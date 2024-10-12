@@ -83,6 +83,17 @@ As a result of the above we get a bunch of read phenomena. E.g. Dirty Reads, Non
 
 Isolation levels were introduced to solve the undesirable read phenomena.
 
+## Consistency
+One of the properties that were traded off in many platforms. 
+
+Consistency in Data, which represents the state of the data that is currently persisted. ***Is what you have in disk consistent ?!***
+
+Consistency in Reads, your data might be consistent on disk but the reading of data becomes inconsistent because you have multiple instances, and they are slightly out of sync.
+
+:::waring
+Consistency applies to the system as a whole. Across all the shards, partitions, across all the replicas.
+:::
+
 ## Read Phenomena
 ### Dirty Reads 
 occurs when a transaction reads shared data that has been modified by another transaction but that transaction is not yet committed. There is a chance that this change will be rolled back or committed. Dirty means: you wrote something but that write is not flushed yet.
@@ -318,8 +329,10 @@ TXs are run `as if` they serialized one after the other. Depends on DB Engine.
 ### Implementation
 - Each DBMS implements Isolation Level differently.
 - Pessimistic - Row level locks, table locks, page locks to avoid lost updates.
-- Optimistic - No locks, just tracks if things changed and fail the transaction if so. 
-
+- Optimistic - No locks, just tracks if things changed and fail the transaction if so. And the user should retry. No database prefer this approach.
+- Repeatable Read "locks" the rows it reads but it could be expensive if you read a lot of rows, postgres implements RR as snapshot. That is why you do not get `phantom reads` with postgres in repeatable read mode.
+- Serializable are usually implemented with optimistic concurrency control, you can implement it pessimistically with SELECT FOR UPDATE. Remember: `Serializable` means one after the other.
+ 
 :::warning Lock escalation
 Take care of lock escalation, you can lock your entire table.
 :::
