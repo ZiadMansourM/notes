@@ -9,6 +9,32 @@ import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 ```
 
+French 6-12 months.
+
+
+## Most Frequent Path
+1. Express Entry ():
+
+1. French. 6 - 12 Month. (HIGH).
+2. Master (Degree). >>> Cost. Diploma. Question. No work. 1800 800 500.
+-->> STEM.
+3. LIMIA (Hard).
+    - PnP.
+    - French based draws.
+    - Provincial Immigration Programs.
+
+>>> States: On, `British Columbia` +4 Expensive Better Weather, Quebec.
+>>> Top 10 UBC BC and 
+
+`Water Law`, `Toronto`, and `mac master`.
+
+>>> Arab.
+
+GTA
+
+2. Job Offer.
+3. Master in Canada.
+
 ## Init
 You used this [tool](https://ircc.canada.ca/english/immigrate/skilled/crs-tool.asp) to estimate your score. 
 
@@ -61,6 +87,7 @@ I have explored some ways to improve your score.
 ## Plan
 - Aim for:
     - [ ] Federal Skilled Worker (TEER 1).
+    9,1"Winter",5"No TA"
     - [ ] French-language proficiency.
     - [ ] Science, Technology, Engineering and Math (STEM) occupations.
     - [ ] Provincial Nominee Program (PNP).
