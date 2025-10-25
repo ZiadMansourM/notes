@@ -1,5 +1,10 @@
 ziadh:
   name: Ziad Hassanin
-  title: Jr. Site Reliability Engineer
+  title: DevOps Engineer
   url: https://github.com/ZiadMansourM
   image_url: https://github.com/ZiadMansourM.png
+  socials:
+    github: ZiadMansourM
+    x: Ziad_M_404
+    linkedin: ziad-mansour
+

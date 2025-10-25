@@ -1,0 +1,41 @@
+## Draft Agenda
+- [X] Running Analogy.
+- [X] Why Unified O11y?
+    - Faster and More Efficient Debugging (MTTR - Mean Time To Resolution ↓↓↓).
+    - Data Driven Decisions.
+    - Increased System Reliability: (The most fundamental feature for any system or product).
+    - Faster Delivery.
+    - Reduced Costs.
+- [X] Terminologies + Quick Code Snippets.
+    - Instrumentation {auto,manual}: Super Safe for your code.
+    - Logs: log levels.
+    - Metrics: types.
+    - Traces: Trace, Span...etc.
+    - OTel: Collector, API/SDK, Protocol.
+- [X] Demo.
+- [X] Advanced Usecases:
+    - Decouple Deploy from Release.
+
+
+```mermaid
+graph LR
+    subgraph Talabat Service
+        direction TB
+        A[REST Call<br/>→ Delivery Hero REST] -. prod .-> DHREST
+        B[GraphQL Call<br/>→ Delivery Hero GraphQL] -. shadow/qa .-> DHGQL
+        COMP[Compare\nResponses]
+        A --> COMP
+        B --> COMP
+        COMP -- diff? +1 --> METRIC[❯ diff_counter ❮]
+    end
+
+    %% External systems
+    DHREST([DH REST API])
+    DHGQL([DH GraphQL API])
+    METRIC --> COLLECTOR(OTel Collector)
+    COLLECTOR --> Mimir[Mimir]
+    Mimir --> Grafana[Grafana Dashboard]
+```
+
+<hr/>
+
